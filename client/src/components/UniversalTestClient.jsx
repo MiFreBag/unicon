@@ -1168,4 +1168,6 @@ const SqlWorkspace = ({ connection }) => {
   );
 };
 
+};
+
 export default UniversalTestClient;
