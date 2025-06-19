@@ -5,13 +5,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: '/unicon/',
   plugins: [react()],
- server: {
+  server: {
     port: 5174,
     host: '0.0.0.0', // Wichtig: Erlaubt Zugriff von anderen IPs
     strictPort: true,
     hmr: {
-      port: 5174,
-      host: 'localhost' // Für HMR verwende localhost
+      port: 5174 // Nutzt automatisch den Host der aufrufenden Seite
     },
     proxy: {
    '/unicon/api': {
