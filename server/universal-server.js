@@ -55,78 +55,58 @@ const connAdapter = new FileSync(CONNECTIONS_FILE);
 const connDb = low(connAdapter);
 connDb.defaults({ connections: [] }).write();
 
-class ConnectionManager {
-  constructor() {
-    this.connections = new Map();
-    this.loadConnections();
+// Connection manager
+const connectionManager = {
+  getAll: () => connDb.get('connections').value(),
+  
+  get: (id) => connDb.get('connections').find({ id }).value(),
+  
+  add: (connection) => {
+    const newConnection = {
+      id: uuidv4(),
+      ...connection,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    connDb.get('connections')
+      .push(newConnection)
+      .write();
+      
+    return newConnection;
+  },
+  
+  update: (id, updates) => {
+    const updated = connDb.get('connections')
+      .find({ id })
+      .assign({
+        ...updates,
+        updatedAt: new Date().toISOString()
+      })
+      .write();
+      
+    return updated;
+  },
+  
+  delete: (id) => {
+    const removed = connDb.get('connections')
+      .remove({ id })
+      .write();
+      
+    return removed.length > 0;
   }
+};
 
-  loadConnections() {
-    try {
-      const connections = connDb.get('connections').value();
-      connections.forEach(conn => {
-        this.connections.set(conn.id, conn);
-      });
-    } catch (error) {
-      console.error('Error loading connections:', error);
-    }
-  }
-
-  saveConnections() {
-    try {
-      const connections = Array.from(this.connections.values());
-      connDb.set('connections', connections).write();
-    } catch (error) {
-      console.error('Error saving connections:', error);
-    }
-  }
-
-  add(connection) {
-    connection.id = connection.id || uuidv4();
-    connection.createdAt = connection.createdAt || new Date().toISOString();
-    this.connections.set(connection.id, connection);
-    this.saveConnections();
-    return connection;
-  }
-
-  get(id) {
-    return this.connections.get(id);
-  }
-
-  getAll() {
-    return Array.from(this.connections.values());
-  }
-
-  delete(id) {
-    const deleted = this.connections.delete(id);
-    if (deleted) {
-      this.saveConnections();
-    }
-    return deleted;
-  }
-
-  update(id, updates) {
-    const connection = this.connections.get(id);
-    if (connection) {
-      Object.assign(connection, updates);
-      this.saveConnections();
-    }
-    return connection;
-  }
-}
-
-const connectionManager = new ConnectionManager();
-
-// WebSocket Server Setup
-const setupWebSocketServer = () => {
+// WebSocket server setup
+function setupWebSocketServer() {
   wsServer = new WebSocket.Server({ port: WS_PORT });
   
   wsServer.on('connection', (ws) => {
-    console.log('WebSocket client connected');
+    console.log('Client WebSocket connected');
     connectedClients.add(ws);
     
     ws.on('close', () => {
-      console.log('WebSocket client disconnected');
+      console.log('Client WebSocket disconnected');
       connectedClients.delete(ws);
     });
     
@@ -134,28 +114,28 @@ const setupWebSocketServer = () => {
       console.error('WebSocket error:', error);
       connectedClients.delete(ws);
     });
+    
+    // Send initial connection status
+    ws.send(JSON.stringify({
+      type: 'connection_status',
+      data: { status: 'connected' }
+    }));
   });
   
-  console.log(`WebSocket server running on port ${WS_PORT}`);
-};
+  console.log(`WebSocket Server running on port ${WS_PORT}`);
+}
 
-// Broadcast to all connected WebSocket clients
-const broadcast = (message) => {
-  const messageString = JSON.stringify(message);
-  connectedClients.forEach(client => {
+// Broadcast function
+function broadcast(message) {
+  const messageStr = JSON.stringify(message);
+  connectedClients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      try {
-        client.send(messageString);
-      } catch (error) {
-        console.error('Error sending WebSocket message:', error);
-        connectedClients.delete(client);
-      }
+      client.send(messageStr);
     }
   });
-};
+}
 
-// Utility function to create log message
-const createLogMessage = (message, type = 'info') => {
+function createLogMessage(message, type = 'info') {
   return {
     type: 'log',
     data: {
@@ -164,9 +144,10 @@ const createLogMessage = (message, type = 'info') => {
       timestamp: new Date().toISOString()
     }
   };
-};
+}
 
 // Protocol Handlers
+
 class OpcUaHandler {
   constructor(connectionId, config) {
     this.connectionId = connectionId;
@@ -181,165 +162,127 @@ class OpcUaHandler {
       this.client = OPCUAClient.create({
         applicationName: "Universal Test Client",
         connectionStrategy: {
-          initialDelay: 1000,
-          maxRetry: 1
+          maxRetry: 1,
+          initialDelay: 2000,
+          maxDelay: 10000
         },
         securityMode: MessageSecurityMode[this.config.securityMode] || MessageSecurityMode.None,
         securityPolicy: SecurityPolicy[this.config.securityPolicy] || SecurityPolicy.None,
-        endpointMustExist: false
+        endpoint_must_exist: false
       });
 
       await this.client.connect(this.config.endpoint);
       this.session = await this.client.createSession();
       
-      broadcast({
-        type: 'connection_status',
-        data: { connectionId: this.connectionId, status: 'connected' }
-      });
-
-      return { success: true };
+      return { success: true, message: 'Connected to OPC UA server' };
+      
     } catch (error) {
-      await this.disconnect();
-      throw error;
+      throw new Error(`OPC UA connection failed: ${error.message}`);
     }
   }
 
   async disconnect() {
+    const result = { success: true, message: 'Disconnected from OPC UA server' };
+    
     try {
       if (this.subscription) {
         await this.subscription.terminate();
         this.subscription = null;
       }
+      
       if (this.session) {
         await this.session.close();
         this.session = null;
       }
+      
       if (this.client) {
         await this.client.disconnect();
         this.client = null;
       }
-
-      broadcast({
-        type: 'connection_status',
-        data: { connectionId: this.connectionId, status: 'disconnected' }
-      });
-
-      return { success: true };
     } catch (error) {
-      console.error('OPC UA disconnect error:', error);
-      return { success: false, error: error.message };
+      console.warn('Error during OPC UA disconnect:', error);
     }
+    
+    return result;
   }
 
-  async browse(nodeId = 'RootFolder') {
-    if (!this.session) throw new Error('Not connected');
-    
-    const browseResult = await this.session.browse(nodeId);
-    const nodes = [];
-
-    for (const reference of browseResult.references) {
-      try {
-        const nodesToRead = [
-          { nodeId: reference.nodeId, attributeId: AttributeIds.DisplayName },
-          { nodeId: reference.nodeId, attributeId: AttributeIds.DataType },
-          { nodeId: reference.nodeId, attributeId: AttributeIds.Value },
-          { nodeId: reference.nodeId, attributeId: AttributeIds.AccessLevel }
-        ];
-
-        const dataValues = await this.session.read(nodesToRead);
-        
-        nodes.push({
-          nodeId: reference.nodeId.toString(),
-          browseName: reference.browseName.toString(),
-          displayName: dataValues[0].statusCode.name === 'Good' ? 
-            dataValues[0].value.value.text : reference.browseName.toString(),
-          dataType: dataValues[1].statusCode.name === 'Good' ? 
-            dataValues[1].value?.value?.toString() || 'Unknown' : 'Unknown',
-          value: dataValues[2].statusCode.name === 'Good' ? 
-            dataValues[2].value?.value?.toString() || null : null,
-          accessLevel: this.getAccessLevelString(dataValues[3].value?.value || 0),
-          hasChildren: reference.isForward
-        });
-      } catch (nodeError) {
-        console.warn(`Error reading node ${reference.nodeId}:`, nodeError.message);
-      }
+  async browse(nodeId = 'ns=0;i=85') {
+    if (!this.session) {
+      throw new Error('Not connected to OPC UA server');
     }
 
-    return { success: true, nodes };
+    try {
+      const browseResult = await this.session.browse(nodeId);
+      
+      const nodes = browseResult.references.map(ref => ({
+        nodeId: ref.nodeId.toString(),
+        browseName: ref.browseName.toString(),
+        displayName: ref.displayName?.text || ref.browseName.toString(),
+        nodeClass: ref.nodeClass,
+        typeDefinition: ref.typeDefinition?.toString()
+      }));
+
+      return { success: true, data: nodes };
+      
+    } catch (error) {
+      throw new Error(`Browse failed: ${error.message}`);
+    }
   }
 
   async read(nodeId) {
-    if (!this.session) throw new Error('Not connected');
-    
-    const dataValue = await this.session.readVariableValue(nodeId);
-    return {
-      success: true,
-      data: {
+    if (!this.session) {
+      throw new Error('Not connected to OPC UA server');
+    }
+
+    try {
+      const dataValue = await this.session.read({
         nodeId,
-        value: dataValue.value.value,
-        dataType: dataValue.value.dataType.toString(),
-        sourceTimestamp: dataValue.sourceTimestamp,
-        statusCode: dataValue.statusCode.name
-      }
-    };
-  }
+        attributeId: AttributeIds.Value
+      });
 
-  async write(nodeId, value, dataType) {
-    if (!this.session) throw new Error('Not connected');
-    
-    const nodesToWrite = [{
-      nodeId: nodeId,
-      attributeId: AttributeIds.Value,
-      value: {
-        value: {
-          dataType: this.getDataTypeFromString(dataType),
-          value: this.convertValueByDataType(value, dataType)
+      return {
+        success: true,
+        data: {
+          nodeId,
+          value: dataValue.value?.value,
+          dataType: dataValue.value?.dataType?.name,
+          statusCode: dataValue.statusCode?.name,
+          timestamp: dataValue.sourceTimestamp,
+          quality: dataValue.statusCode?.description
         }
-      }
-    }];
-
-    const statusCodes = await this.session.write(nodesToWrite);
-    return {
-      success: statusCodes[0].name === 'Good',
-      statusCode: statusCodes[0].name
-    };
-  }
-
-  getAccessLevelString(accessLevel) {
-    const levels = [];
-    if (accessLevel & 0x01) levels.push('Read');
-    if (accessLevel & 0x02) levels.push('Write');
-    return levels.length > 0 ? levels.join('') : 'None';
-  }
-
-  convertValueByDataType(value, dataType) {
-    switch (dataType?.toLowerCase()) {
-      case 'boolean':
-        return value === 'true' || value === true || value === 1 || value === '1';
-      case 'int32':
-      case 'uint32':
-      case 'int16':
-      case 'uint16':
-        return parseInt(value, 10);
-      case 'double':
-      case 'float':
-        return parseFloat(value);
-      default:
-        return value.toString();
+      };
+      
+    } catch (error) {
+      throw new Error(`Read failed: ${error.message}`);
     }
   }
 
-  getDataTypeFromString(dataType) {
-    const { DataType } = require('node-opcua');
-    
-    switch (dataType?.toLowerCase()) {
-      case 'boolean': return DataType.Boolean;
-      case 'int32': return DataType.Int32;
-      case 'uint32': return DataType.UInt32;
-      case 'double': return DataType.Double;
-      case 'float': return DataType.Float;
-      case 'string': return DataType.String;
-      default: return DataType.Variant;
+  async write(nodeId, value, dataType) {
+    if (!this.session) {
+      throw new Error('Not connected to OPC UA server');
+    }
+
+    try {
+      const statusCode = await this.session.write({
+        nodeId,
+        attributeId: AttributeIds.Value,
+        value: {
+          value,
+          dataType: dataType || 'String'
+        }
+      });
+
+      return {
+        success: statusCode.isGood(),
+        data: {
+          nodeId,
+          statusCode: statusCode.name,
+          description: statusCode.description
+        }
+      };
+      
+    } catch (error) {
+      throw new Error(`Write failed: ${error.message}`);
     }
   }
 }
@@ -348,62 +291,60 @@ class RestHandler {
   constructor(connectionId, config) {
     this.connectionId = connectionId;
     this.config = config;
-    this.isConnected = false;
+    this.axiosInstance = null;
   }
 
   async connect() {
     try {
+      this.axiosInstance = axios.create({
+        baseURL: this.config.baseUrl,
+        timeout: this.config.timeout || 30000,
+        headers: this.buildHeaders()
+      });
+
       // Test connection with a simple request
-      const headers = this.buildHeaders();
-      await axios.get(this.config.baseUrl, { 
-        headers, 
-        timeout: 5000,
-        validateStatus: () => true // Accept any status for connection test
-      });
+      const testEndpoint = this.config.testEndpoint || '/';
+      try {
+        await this.axiosInstance.get(testEndpoint);
+      } catch (error) {
+        // If test endpoint fails, still consider connection successful
+        // as the base URL might be valid but test endpoint might not exist
+        console.warn('Test endpoint failed, but connection established');
+      }
+
+      return { success: true, message: 'REST client configured' };
       
-      this.isConnected = true;
-      broadcast({
-        type: 'connection_status',
-        data: { connectionId: this.connectionId, status: 'connected' }
-      });
-      
-      return { success: true };
     } catch (error) {
-      this.isConnected = false;
       throw new Error(`REST connection failed: ${error.message}`);
     }
   }
 
   async disconnect() {
-    this.isConnected = false;
-    broadcast({
-      type: 'connection_status',
-      data: { connectionId: this.connectionId, status: 'disconnected' }
-    });
-    return { success: true };
+    this.axiosInstance = null;
+    return { success: true, message: 'REST client disconnected' };
   }
 
   async request(method, endpoint, data = null, headers = {}) {
-    if (!this.isConnected) throw new Error('Not connected');
-    
-    const requestHeaders = { ...this.buildHeaders(), ...headers };
-    const url = `${this.config.baseUrl}${endpoint}`;
-    
-    const config = {
-      method,
-      url,
-      headers: requestHeaders,
-      timeout: 10000
-    };
-    
-    if (data && ['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
-      config.data = data;
+    if (!this.axiosInstance) {
+      throw new Error('REST client not connected');
     }
-    
-    const response = await axios(config);
-    return {
-      success: true,
-      data: {
+
+    try {
+      const config = {
+        method: method.toLowerCase(),
+        url: endpoint,
+        headers: { ...this.buildHeaders(), ...headers }
+      };
+
+      if (data && ['post', 'put', 'patch'].includes(config.method)) {
+        config.data = data;
+      }
+
+      const response = await this.axiosInstance.request(config);
+      
+      return {
+        success: true,
+        data: response.data,
         status: response.status,
         statusText: response.statusText,
         headers: response.headers,
@@ -458,604 +399,78 @@ class WebSocketHandler {
       try {
         const protocols = this.config.protocol ? [this.config.protocol] : undefined;
         this.ws = new WebSocket(this.config.url, protocols);
-        
-        this.ws.onopen = () => {
-          broadcast({
-            type: 'connection_status',
-            data: { connectionId: this.connectionId, status: 'connected' }
-          });
+
+        this.ws.on('open', () => {
+          console.log(`WebSocket connected: ${this.config.url}`);
           
           // Setup heartbeat if configured
           if (this.config.heartbeat && this.config.heartbeat > 0) {
             this.heartbeatInterval = setInterval(() => {
-              if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+              if (this.ws.readyState === WebSocket.OPEN) {
                 this.ws.ping();
               }
-            }, parseInt(this.config.heartbeat));
+            }, this.config.heartbeat);
           }
-          
-          resolve({ success: true });
-        };
-        
-        this.ws.onclose = () => {
-          this.cleanup();
-          broadcast({
-            type: 'connection_status',
-            data: { connectionId: this.connectionId, status: 'disconnected' }
-          });
-        };
-        
-        this.ws.onerror = (error) => {
-          this.cleanup();
-          reject(new Error(`WebSocket connection failed: ${error.message}`));
-        };
-        
-        this.ws.onmessage = (event) => {
+
+          resolve({ success: true, message: 'WebSocket connected' });
+        });
+
+        this.ws.on('message', (data) => {
           broadcast({
             type: 'data',
             data: {
               connectionId: this.connectionId,
-              payload: {
-                type: 'message',
-                data: event.data,
-                timestamp: new Date().toISOString()
-              }
+              type: 'message',
+              data: data.toString(),
+              timestamp: new Date().toISOString()
             }
           });
-        };
-        
+        });
+
+        this.ws.on('error', (error) => {
+          console.error('WebSocket error:', error);
+          reject(new Error(`WebSocket connection failed: ${error.message}`));
+        });
+
+        this.ws.on('close', () => {
+          console.log('WebSocket disconnected');
+          if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+          }
+        });
+
       } catch (error) {
-        reject(error);
+        reject(new Error(`WebSocket setup failed: ${error.message}`));
       }
     });
   }
 
   async disconnect() {
-    this.cleanup();
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
-    return { success: true };
+
+    return { success: true, message: 'WebSocket disconnected' };
   }
 
   async send(message) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
-    
-    this.ws.send(message);
-    return { success: true };
-  }
 
-  cleanup() {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-  }
-}
-
-class GrpcHandler {
-  constructor(connectionId, config) {
-    this.connectionId = connectionId;
-    this.config = config;
-    this.client = null;
-    this.proto = null;
-    this.services = new Map();
-  }
-
-  async connect() {
     try {
-      const grpc = require('@grpc/grpc-js');
-      const protoLoader = require('@grpc/proto-loader');
-      
-      // Load proto file
-      if (this.config.protoFile) {
-        const packageDefinition = protoLoader.loadSync(this.config.protoFile, {
-          keepCase: true,
-          longs: String,
-          enums: String,
-          defaults: true,
-          oneofs: true
-        });
-        
-        this.proto = grpc.loadPackageDefinition(packageDefinition);
-        
-        // Create client for the specified service
-        if (this.config.service && this.proto[this.config.service]) {
-          const credentials = this.config.useTls ? 
-            grpc.credentials.createSsl() : 
-            grpc.credentials.createInsecure();
-            
-          this.client = new this.proto[this.config.service](
-            this.config.address,
-            credentials
-          );
-          
-          this.services.set(this.config.service, this.client);
-        }
-      }
-      
-      // Test connection with a simple health check
-      if (this.client && this.client.healthCheck) {
-        await new Promise((resolve, reject) => {
-          this.client.healthCheck({}, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        });
-      }
-      
-      broadcast({
-        type: 'connection_status',
-        data: { connectionId: this.connectionId, status: 'connected' }
-      });
-      
-      return { success: true };
+      this.ws.send(message);
+      return { success: true, message: 'Message sent' };
     } catch (error) {
-      throw new Error(`gRPC connection failed: ${error.message}`);
+      throw new Error(`Send failed: ${error.message}`);
     }
-  }
-
-  async disconnect() {
-    try {
-      if (this.client) {
-        this.client.close();
-        this.client = null;
-      }
-      
-      this.services.clear();
-      this.proto = null;
-      
-      broadcast({
-        type: 'connection_status',
-        data: { connectionId: this.connectionId, status: 'disconnected' }
-      });
-      
-      return { success: true };
-    } catch (error) {
-      console.error('gRPC disconnect error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  async call(service, method, request, metadata = {}) {
-    if (!this.client) throw new Error('Not connected');
-    
-    const serviceClient = this.services.get(service) || this.client;
-    if (!serviceClient[method]) {
-      throw new Error(`Method ${method} not found in service ${service}`);
-    }
-    
-    return new Promise((resolve, reject) => {
-      const grpcMetadata = new (require('@grpc/grpc-js').Metadata)();
-      Object.entries(metadata).forEach(([key, value]) => {
-        grpcMetadata.add(key, value);
-      });
-      
-      serviceClient[method](request, grpcMetadata, (error, response) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(response);
-        }
-      });
-    });
-  }
-
-  async getServices() {
-    if (!this.proto) return [];
-    
-    const services = [];
-    Object.keys(this.proto).forEach(key => {
-      if (typeof this.proto[key] === 'function') {
-        services.push({
-          name: key,
-          methods: this.getServiceMethods(this.proto[key])
-        });
-      }
-    });
-    
-    return services;
-  }
-
-  getServiceMethods(serviceConstructor) {
-    const methods = [];
-    if (serviceConstructor.prototype) {
-      Object.getOwnPropertyNames(serviceConstructor.prototype).forEach(methodName => {
-        if (methodName !== 'constructor') {
-          methods.push({
-            name: methodName,
-            type: 'unary' // This would need more sophisticated detection
-          });
-        }
-      });
-    }
-    return methods;
-  }
-}
-
-// CPD Handler Class
-class CpdHandler {
-  constructor(connectionId, config) {
-    this.connectionId = connectionId;
-    this.config = config;
-    this.client = null;
-    this.wsClient = null;
-    this.subscriptions = new Map();
-    this.proto = null;
-    this.isGrpc = config.protocol === 'grpc';
-  }
-
-  async connect() {
-    try {
-      if (this.isGrpc) {
-        await this.connectGrpc();
-      } else {
-        await this.connectWebSocket();
-      }
-      
-      broadcast({
-        type: 'connection_status',
-        data: { connectionId: this.connectionId, status: 'connected' }
-      });
-      
-      return { success: true };
-    } catch (error) {
-      throw new Error(`CPD connection failed: ${error.message}`);
-    }
-  }
-
-  async connectGrpc() {
-    const grpc = require('@grpc/grpc-js');
-    const protoLoader = require('@grpc/proto-loader');
-    
-    // Load CPD proto file
-    const packageDefinition = protoLoader.loadSync(__dirname + '/proto/cpd.proto', {
-      keepCase: true,
-      longs: String,
-      enums: String,
-      defaults: true,
-      oneofs: true
-    });
-    
-    this.proto = grpc.loadPackageDefinition(packageDefinition).core.cpd_adapter;
-    
-    const credentials = this.config.useTls ? 
-      grpc.credentials.createSsl() : 
-      grpc.credentials.createInsecure();
-      
-    this.client = new this.proto.cpd(this.config.address, credentials);
-    
-    // Test connection with ping
-    await new Promise((resolve, reject) => {
-      this.client.ping({ msg: 'test' }, (error, response) => {
-        if (error) reject(error);
-        else resolve(response);
-      });
-    });
-  }
-
-  async connectWebSocket() {
-    const WebSocket = require('ws');
-    
-    this.wsClient = new WebSocket(this.config.url);
-    
-    return new Promise((resolve, reject) => {
-      this.wsClient.on('open', () => {
-        console.log('[CPD WebSocket] Connected');
-        resolve();
-      });
-      
-      this.wsClient.on('error', (error) => {
-        reject(error);
-      });
-      
-      this.wsClient.on('message', (data) => {
-        try {
-          const message = JSON.parse(data.toString());
-          this.handleMessage(message);
-        } catch (error) {
-          console.error('[CPD WebSocket] Parse error:', error);
-        }
-      });
-      
-      this.wsClient.on('close', () => {
-        broadcast({
-          type: 'connection_status',
-          data: { connectionId: this.connectionId, status: 'disconnected' }
-        });
-      });
-    });
-  }
-
-  async disconnect() {
-    try {
-      // Unsubscribe all active subscriptions
-      for (const [id, subscription] of this.subscriptions) {
-        await this.unsubscribe(id);
-      }
-      
-      if (this.client) {
-        this.client.close();
-        this.client = null;
-      }
-      
-      if (this.wsClient) {
-        this.wsClient.close();
-        this.wsClient = null;
-      }
-      
-      broadcast({
-        type: 'connection_status',
-        data: { connectionId: this.connectionId, status: 'disconnected' }
-      });
-      
-      return { success: true };
-    } catch (error) {
-      console.error('CPD disconnect error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  async ping(message = 'ping') {
-    if (this.isGrpc && this.client) {
-      return new Promise((resolve, reject) => {
-        this.client.ping({ msg: message }, (error, response) => {
-          if (error) reject(error);
-          else resolve(response);
-        });
-      });
-    } else if (this.wsClient) {
-      // WebSocket ping implementation
-      const pingData = JSON.stringify({ type: 'ping', msg: message });
-      this.wsClient.send(pingData);
-      return { msg: `Ping sent: ${message}` };
-    }
-    throw new Error('Not connected');
-  }
-
-  async subscribe(id, topicPatterns, config = {}) {
-    if (this.isGrpc && this.client) {
-      return new Promise((resolve, reject) => {
-        const request = {
-          id: id,
-          filterDef: {
-            mode: 0, // DEFAULT
-            caseSensitive: false,
-            topicpattern: topicPatterns
-          },
-          subsConfig: {
-            storeAll: config.storeAll || false,
-            flatSubscribe: config.flatSubscribe || true,
-            sendInitialData: config.sendInitialData || true,
-            aggrMode: config.aggrMode || 0
-          }
-        };
-        
-        const stream = this.client.subscribe(request);
-        
-        stream.on('data', (topicChange) => {
-          this.handleTopicChange(topicChange);
-        });
-        
-        stream.on('error', (error) => {
-          console.error('[CPD gRPC] Subscription error:', error);
-          reject(error);
-        });
-        
-        stream.on('end', () => {
-          console.log('[CPD gRPC] Subscription ended');
-          this.subscriptions.delete(id);
-        });
-        
-        this.subscriptions.set(id, { stream, topicPatterns, config });
-        resolve({ success: true, subscriptionId: id });
-      });
-    } else if (this.wsClient) {
-      // WebSocket subscription
-      const subscribeData = JSON.stringify({
-        type: 'subscribe',
-        id: id,
-        topics: topicPatterns,
-        config: config
-      });
-      
-      this.wsClient.send(subscribeData);
-      this.subscriptions.set(id, { topicPatterns, config });
-      return { success: true, subscriptionId: id };
-    }
-    throw new Error('Not connected');
-  }
-
-  async simpleSubscribe(id, topicPatterns) {
-    if (this.isGrpc && this.client) {
-      return new Promise((resolve, reject) => {
-        const request = {
-          id: id,
-          topicpattern: topicPatterns
-        };
-        
-        const stream = this.client.simpleSubscribe(request);
-        
-        stream.on('data', (topicChange) => {
-          this.handleTopicChange(topicChange);
-        });
-        
-        stream.on('error', (error) => {
-          reject(error);
-        });
-        
-        this.subscriptions.set(id, { stream, topicPatterns });
-        resolve({ success: true, subscriptionId: id });
-      });
-    }
-    // Fallback to regular subscribe for WebSocket
-    return this.subscribe(id, topicPatterns);
-  }
-
-  async unsubscribe(id) {
-    if (this.isGrpc && this.client) {
-      const subscription = this.subscriptions.get(id);
-      if (subscription && subscription.stream) {
-        subscription.stream.cancel();
-      }
-      
-      return new Promise((resolve, reject) => {
-        this.client.unsubscribe({ id: id }, (error, response) => {
-          if (error) {
-            reject(error);
-          } else {
-            this.subscriptions.delete(id);
-            resolve({ success: true });
-          }
-        });
-      });
-    } else if (this.wsClient) {
-      const unsubscribeData = JSON.stringify({
-        type: 'unsubscribe',
-        id: id
-      });
-      
-      this.wsClient.send(unsubscribeData);
-      this.subscriptions.delete(id);
-      return { success: true };
-    }
-    throw new Error('Not connected');
-  }
-
-  async publish(topic, data, mode = 'publish') {
-    const topicData = {
-      topic: topic,
-      data: typeof data === 'string' ? data : JSON.stringify(data)
-    };
-    
-    if (this.isGrpc && this.client) {
-      return new Promise((resolve, reject) => {
-        const method = this.client[mode] || this.client.publish;
-        method.call(this.client, topicData, (error, response) => {
-          if (error) reject(error);
-          else resolve({ success: true });
-        });
-      });
-    } else if (this.wsClient) {
-      const publishData = JSON.stringify({
-        type: mode,
-        topic: topic,
-        data: data
-      });
-      
-      this.wsClient.send(publishData);
-      return { success: true };
-    }
-    throw new Error('Not connected');
-  }
-
-  async getLatestData(topicPatterns) {
-    if (this.isGrpc && this.client) {
-      return new Promise((resolve, reject) => {
-        const request = { topicpattern: topicPatterns };
-        
-        this.client.simpleGetLatestData(request, (error, response) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve({
-              success: true,
-              data: response.topicData || []
-            });
-          }
-        });
-      });
-    } else if (this.wsClient) {
-      // WebSocket implementation for getting latest data
-      const requestData = JSON.stringify({
-        type: 'getLatestData',
-        topics: topicPatterns
-      });
-      
-      this.wsClient.send(requestData);
-      return { success: true, message: 'Request sent' };
-    }
-    throw new Error('Not connected');
-  }
-
-  async browseTopics(topicPattern, limit = 100, beginTopicName = '', reverse = false) {
-    if (this.isGrpc && this.client) {
-      return new Promise((resolve, reject) => {
-        const request = {
-          topicPattern: topicPattern,
-          limit: limit,
-          beginTopicName: beginTopicName,
-          reverse: reverse
-        };
-        
-        this.client.browseTopicNames(request, (error, response) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve({
-              success: true,
-              topicNames: response.topicNames || []
-            });
-          }
-        });
-      });
-    } else if (this.wsClient) {
-      const browseData = JSON.stringify({
-        type: 'browseTopics',
-        pattern: topicPattern,
-        limit: limit,
-        begin: beginTopicName,
-        reverse: reverse
-      });
-      
-      this.wsClient.send(browseData);
-      return { success: true, message: 'Browse request sent' };
-    }
-    throw new Error('Not connected');
-  }
-
-  handleMessage(message) {
-    // Handle WebSocket messages
-    if (message.topic && message.data) {
-      this.handleTopicChange({
-        id: message.id || 0,
-        topicData: [{ topic: message.topic, data: message.data }]
-      });
-    }
-  }
-
-  handleTopicChange(topicChange) {
-    // Broadcast topic changes to WebSocket clients
-    broadcast({
-      type: 'data',
-      data: {
-        connectionId: this.connectionId,
-        payload: {
-          type: 'topicChange',
-          subscriptionId: topicChange.id,
-          topics: topicChange.topicData || []
-        }
-      }
-    });
-  }
-
-  mqttMatch(filter, topic) {
-    // MQTT-style topic matching (from provided mqtt-match.js)
-    const filterArray = filter.split('.');
-    const length = filterArray.length;
-    const topicArray = topic.split('.');
-
-    for (let i = 0; i < length; ++i) {
-      const left = filterArray[i];
-      const right = topicArray[i];
-      if (left === '#') return topicArray.length >= length - 1;
-      if (left !== '*' && left !== right) return false;
-    }
-
-    return length === topicArray.length;
   }
 }
 
@@ -1068,165 +483,164 @@ class SqlHandler {
 
   async connect() {
     try {
-      switch (this.config.type) {
-        case 'PostgreSQL':
+      switch (this.config.type.toLowerCase()) {
+        case 'postgresql':
           this.connection = new Client({
             host: this.config.host,
             port: this.config.port || 5432,
             database: this.config.database,
             user: this.config.username,
-            password: this.config.password
+            password: this.config.password,
           });
           await this.connection.connect();
           break;
-          
-        case 'MySQL':
+
+        case 'mysql':
           this.connection = await mysql.createConnection({
             host: this.config.host,
             port: this.config.port || 3306,
             database: this.config.database,
             user: this.config.username,
-            password: this.config.password
+            password: this.config.password,
           });
           break;
-          
-        case 'SQLite':
+
+        case 'sqlite':
           this.connection = new sqlite3.Database(this.config.database);
           break;
-          
+
         default:
           throw new Error(`Unsupported database type: ${this.config.type}`);
       }
+
+      return { success: true, message: `Connected to ${this.config.type} database` };
       
-      broadcast({
-        type: 'connection_status',
-        data: { connectionId: this.connectionId, status: 'connected' }
-      });
-      
-      return { success: true };
     } catch (error) {
-      throw new Error(`SQL connection failed: ${error.message}`);
+      throw new Error(`Database connection failed: ${error.message}`);
     }
   }
 
   async disconnect() {
     try {
       if (this.connection) {
-        switch (this.config.type) {
-          case 'PostgreSQL':
+        switch (this.config.type.toLowerCase()) {
+          case 'postgresql':
             await this.connection.end();
             break;
-          case 'MySQL':
+          case 'mysql':
             await this.connection.end();
             break;
-          case 'SQLite':
+          case 'sqlite':
             this.connection.close();
             break;
         }
         this.connection = null;
       }
+
+      return { success: true, message: 'Database disconnected' };
       
-      broadcast({
-        type: 'connection_status',
-        data: { connectionId: this.connectionId, status: 'disconnected' }
-      });
-      
-      return { success: true };
     } catch (error) {
-      console.error('SQL disconnect error:', error);
-      return { success: false, error: error.message };
+      console.warn('Error during database disconnect:', error);
+      return { success: true, message: 'Database disconnected with warnings' };
     }
   }
 
   async query(sql, params = []) {
-    if (!this.connection) throw new Error('Not connected');
-    
+    if (!this.connection) {
+      throw new Error('Database not connected');
+    }
+
     try {
       let result;
       
-      switch (this.config.type) {
-        case 'PostgreSQL':
+      switch (this.config.type.toLowerCase()) {
+        case 'postgresql':
           result = await this.connection.query(sql, params);
-          return { success: true, data: result.rows, rowCount: result.rowCount };
-          
-        case 'MySQL':
+          return { 
+            success: true, 
+            data: result.rows,
+            rowCount: result.rowCount,
+            fields: result.fields?.map(f => f.name) || []
+          };
+
+        case 'mysql':
           const [rows, fields] = await this.connection.execute(sql, params);
-          return { success: true, data: rows, fields: fields.map(f => f.name) };
-          
-        case 'SQLite':
+          return { 
+            success: true, 
+            data: rows,
+            rowCount: rows.length,
+            fields: fields.map(f => f.name)
+          };
+
+        case 'sqlite':
           return new Promise((resolve, reject) => {
-            this.connection.all(sql, params, (err, rows) => {
-              if (err) reject(err);
-              else resolve({ success: true, data: rows });
-            });
+            if (sql.trim().toLowerCase().startsWith('select')) {
+              this.connection.all(sql, params, (err, rows) => {
+                if (err) reject(err);
+                else resolve({ 
+                  success: true, 
+                  data: rows,
+                  rowCount: rows.length,
+                  fields: rows.length > 0 ? Object.keys(rows[0]) : []
+                });
+              });
+            } else {
+              this.connection.run(sql, params, function(err) {
+                if (err) reject(err);
+                else resolve({ 
+                  success: true, 
+                  data: [],
+                  rowCount: this.changes,
+                  lastInsertId: this.lastID
+                });
+              });
+            }
           });
-          
+
         default:
-          throw new Error(`Unsupported database type: ${this.config.type}`);
+          throw new Error(`Query not supported for ${this.config.type}`);
       }
+      
     } catch (error) {
       throw new Error(`Query failed: ${error.message}`);
     }
   }
 
   async getSchema() {
-    if (!this.connection) throw new Error('Not connected');
-    
     try {
       let schemaQuery;
       
-      switch (this.config.type) {
-        case 'PostgreSQL':
+      switch (this.config.type.toLowerCase()) {
+        case 'postgresql':
           schemaQuery = `
-            SELECT 
-              table_name,
-              column_name,
-              data_type,
-              is_nullable,
-              column_default
+            SELECT table_name, column_name, data_type, is_nullable, column_default
             FROM information_schema.columns 
-            WHERE table_schema = 'public' 
+            WHERE table_schema = 'public'
             ORDER BY table_name, ordinal_position
           `;
           break;
           
-        case 'MySQL':
+        case 'mysql':
           schemaQuery = `
-            SELECT 
-              table_name,
-              column_name,
-              data_type,
-              is_nullable,
-              column_default
+            SELECT table_name, column_name, data_type, is_nullable, column_default
             FROM information_schema.columns 
             WHERE table_schema = DATABASE()
             ORDER BY table_name, ordinal_position
           `;
           break;
           
-        case 'SQLite':
-          // SQLite requires a different approach
-          const tablesResult = await new Promise((resolve, reject) => {
-            this.connection.all("SELECT name FROM sqlite_master WHERE type='table'", (err, rows) => {
-              if (err) reject(err);
-              else resolve(rows);
-            });
-          });
-          
+        case 'sqlite':
+          // SQLite needs special handling
+          const tables = await this.query("SELECT name FROM sqlite_master WHERE type='table'");
           const schema = [];
-          for (const table of tablesResult) {
-            const columnsResult = await new Promise((resolve, reject) => {
-              this.connection.all(`PRAGMA table_info(${table.name})`, (err, rows) => {
-                if (err) reject(err);
-                else resolve(rows);
-              });
-            });
-            
-            schema.push(...columnsResult.map(col => ({
+          
+          for (const table of tables.data) {
+            const tableInfo = await this.query(`PRAGMA table_info(${table.name})`);
+            schema.push(...tableInfo.data.map(col => ({
               table_name: table.name,
               column_name: col.name,
               data_type: col.type,
-              is_nullable: col.notnull ? 'NO' : 'YES',
+              is_nullable: col.notnull === 0 ? 'YES' : 'NO',
               column_default: col.dflt_value
             })));
           }
@@ -1245,10 +659,10 @@ class SqlHandler {
   }
 }
 
-// API Routes
+// API Routes - Updated with /unicon prefix
 
 // Get all connections
-app.get('/api/connections', (req, res) => {
+app.get('/unicon/api/connections', (req, res) => {
   try {
     const connections = connectionManager.getAll();
     res.json({ success: true, connections });
@@ -1258,7 +672,7 @@ app.get('/api/connections', (req, res) => {
 });
 
 // Create new connection
-app.post('/api/connections', (req, res) => {
+app.post('/unicon/api/connections', (req, res) => {
   try {
     const connection = connectionManager.add(req.body);
     broadcast(createLogMessage(`Connection "${connection.name}" erstellt`, 'success'));
@@ -1269,7 +683,7 @@ app.post('/api/connections', (req, res) => {
 });
 
 // Update connection
-app.put('/api/connections/:id', (req, res) => {
+app.put('/unicon/api/connections/:id', (req, res) => {
   try {
     const connection = connectionManager.update(req.params.id, req.body);
     if (connection) {
@@ -1283,7 +697,7 @@ app.put('/api/connections/:id', (req, res) => {
 });
 
 // Delete connection
-app.delete('/api/connections/:id', (req, res) => {
+app.delete('/unicon/api/connections/:id', (req, res) => {
   try {
     const connectionId = req.params.id;
     
@@ -1307,7 +721,7 @@ app.delete('/api/connections/:id', (req, res) => {
 });
 
 // Connect to service
-app.post('/api/connect', async (req, res) => {
+app.post('/unicon/api/connect', async (req, res) => {
   try {
     const { connectionId } = req.body;
     const connection = connectionManager.get(connectionId);
@@ -1352,7 +766,7 @@ app.post('/api/connect', async (req, res) => {
 });
 
 // Disconnect from service
-app.post('/api/disconnect', async (req, res) => {
+app.post('/unicon/api/disconnect', async (req, res) => {
   try {
     const { connectionId } = req.body;
     const handler = activeConnections.get(connectionId);
@@ -1373,7 +787,7 @@ app.post('/api/disconnect', async (req, res) => {
 });
 
 // Protocol-specific operations
-app.post('/api/operation', async (req, res) => {
+app.post('/unicon/api/operation', async (req, res) => {
   try {
     const { connectionId, operation, params } = req.body;
     const handler = activeConnections.get(connectionId);
@@ -1424,7 +838,7 @@ app.post('/api/operation', async (req, res) => {
 });
 
 // Get connection status
-app.get('/api/status/:connectionId', (req, res) => {
+app.get('/unicon/api/status/:connectionId', (req, res) => {
   const connectionId = req.params.connectionId;
   const isActive = activeConnections.has(connectionId);
   
