@@ -5,5 +5,21 @@
   "workspaces": [
     "client",
     "server"
-  ]
+  ],
+    "scripts": {
+    "tag": "standard-version && npm run update-remote && git push --follow-tags origin main && npm publish",
+    "dev:all": "concurrently -n unicon-client,unicon-server -c green,blue \"npm:unicon-client\" \"npm:unicon-server\"",
+    "server": "node server/index.js",
+    "unicon-client": "npm --prefix client run dev",
+    "unicon-server": "npm --prefix server run dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext js,jsx --fix",
+    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "docker:build": "docker build -t universal-frontend .",
+    "docker:run": "docker run -p 80:80 universal-frontend"
+  }
+
 }
+

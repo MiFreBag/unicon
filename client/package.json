@@ -13,6 +13,7 @@
     "docker:build": "docker build -t universal-frontend .",
     "docker:run": "docker run -p 80:80 universal-frontend"
   },
+  
   "dependencies": {
     "lucide-react": "^0.515.0",
     "react": "^19.1.0",
