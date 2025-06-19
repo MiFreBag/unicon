@@ -28,411 +28,79 @@ import {
 } from 'lucide-react';
 import { connectionTypes } from '../constants/connectionTypes.jsx';
 
+// UniversalTestClient.jsx - Key-Duplikate beheben
+
 const UniversalTestClient = () => {
-  const [connections, setConnections] = useState([]);
-  const [openTabs, setOpenTabs] = useState([]);
-  const [activeTab, setActiveTab] = useState(null);
-  const [showConnectionDialog, setShowConnectionDialog] = useState(false);
+  // ... andere State-Variablen ...
   const [logs, setLogs] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const wsRef = useRef(null);
 
-  // API Base URLs
-  const API_BASE = '/unicon/api';
-  const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/unicon/ws`;
-
-
-  // Initialize WebSocket connection
-  useEffect(() => {
-    const connectWebSocket = () => {
-      try {
-        wsRef.current = new WebSocket(WS_URL);
-        
-        wsRef.current.onopen = () => {
-          console.log('WebSocket connected');
-          addLog('WebSocket verbunden', 'success');
-        };
-        
-        wsRef.current.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data);
-            handleWebSocketMessage(message);
-          } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
-          }
-        };
-        
-        wsRef.current.onclose = () => {
-          console.log('WebSocket disconnected');
-          setTimeout(connectWebSocket, 3000);
-        };
-        
-        wsRef.current.onerror = (error) => {
-          console.error('WebSocket error:', error);
-        };
-      } catch (error) {
-        console.error('WebSocket connection failed:', error);
-        setTimeout(connectWebSocket, 3000);
-      }
-    };
-
-    connectWebSocket();
-    loadConnections();
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, []);
-
-  const handleWebSocketMessage = (message) => {
-    switch (message.type) {
-      case 'connection_status':
-        updateConnectionStatus(message.data.connectionId, message.data.status);
-        break;
-      case 'log':
-        addLog(message.data.message, message.data.type);
-        break;
-      case 'data':
-        handleConnectionData(message.data);
-        break;
-      default:
-        console.log('Unknown WebSocket message type:', message.type);
-    }
-  };
-
+  // Logs mit eindeutigen IDs hinzufügen
   const addLog = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [{
-      id: Date.now(),
+    const logEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Eindeutige ID
       message,
       type,
       timestamp
-    }, ...prev.slice(0, 99)]);
-  };
-
-  const loadConnections = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/connections`);
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`HTTP ${response.status}: ${text}`);
-      }
-      const result = await response.json();
-      if (result.success) {
-        setConnections(result.connections || []);
-      }
-    } catch (error) {
-      addLog(`Fehler beim Laden der Connections: ${error.message}`, 'error');
-    }
-  };
-
-  const saveConnection = async (connectionData) => {
-    try {
-      const response = await fetch(`${API_BASE}/connections`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(connectionData)
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`HTTP ${response.status}: ${text}`);
-      }
-
-      const result = await response.json();
-      if (result.success) {
-        setConnections(prev => [...prev, result.connection]);
-        addLog(`Connection "${connectionData.name}" gespeichert`, 'success');
-      }
-    } catch (error) {
-      addLog(`Fehler beim Speichern: ${error.message}`, 'error');
-    }
-  };
-
-  const deleteConnection = async (connectionId) => {
-    try {
-      const response = await fetch(`${API_BASE}/connections/${connectionId}`, {
-        method: 'DELETE'
-      });
-      
-      if (response.ok) {
-        setConnections(prev => prev.filter(conn => conn.id !== connectionId));
-        setOpenTabs(prev => prev.filter(tab => tab.id !== connectionId));
-        if (activeTab === connectionId) {
-          setActiveTab(openTabs.length > 1 ? openTabs[0].id : null);
-        }
-        addLog('Connection gelöscht', 'info');
-      }
-    } catch (error) {
-      addLog(`Fehler beim Löschen: ${error.message}`, 'error');
-    }
-  };
-
-  const openConnection = (connection) => {
-    if (!openTabs.find(tab => tab.id === connection.id)) {
-      const newTab = {
-        ...connection,
-        status: 'disconnected',
-        data: null
-      };
-      setOpenTabs(prev => [...prev, newTab]);
-    }
-    setActiveTab(connection.id);
-  };
-
-  const closeTab = (connectionId) => {
-    setOpenTabs(prev => prev.filter(tab => tab.id !== connectionId));
-    if (activeTab === connectionId) {
-      const remainingTabs = openTabs.filter(tab => tab.id !== connectionId);
-      setActiveTab(remainingTabs.length > 0 ? remainingTabs[0].id : null);
-    }
-  };
-
-  const connectToService = async (connectionId) => {
-    const connection = openTabs.find(tab => tab.id === connectionId);
-    if (!connection) return;
-
-    setIsLoading(true);
-    
-    try {
-      const response = await fetch(`${API_BASE}/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connectionId })
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`HTTP ${response.status}: ${text}`);
-      }
-
-      const result = await response.json();
-      if (result.success) {
-        updateConnectionStatus(connectionId, 'connected');
-        addLog(`Verbunden mit ${connection.name}`, 'success');
-      }
-    } catch (error) {
-      addLog(`Verbindung fehlgeschlagen: ${error.message}`, 'error');
-      updateConnectionStatus(connectionId, 'disconnected');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const disconnectFromService = async (connectionId) => {
-    try {
-      const response = await fetch(`${API_BASE}/disconnect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connectionId })
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`HTTP ${response.status}: ${text}`);
-      }
-
-      updateConnectionStatus(connectionId, 'disconnected');
-      addLog('Verbindung getrennt', 'info');
-    } catch (error) {
-      addLog(`Fehler beim Trennen: ${error.message}`, 'error');
-    }
-  };
-
-  const updateConnectionStatus = (connectionId, status) => {
-    setOpenTabs(prev => prev.map(tab => 
-      tab.id === connectionId ? { ...tab, status } : tab
-    ));
-  };
-
-  const handleConnectionData = (data) => {
-    setOpenTabs(prev => prev.map(tab => 
-      tab.id === data.connectionId ? { ...tab, data: data.payload } : tab
-    ));
-  };
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'connected':
-        return <CheckCircle2 className="text-green-500" size={16} />;
-      case 'connecting':
-        return <RefreshCw className="text-yellow-500 animate-spin" size={16} />;
-      default:
-        return <AlertCircle className="text-red-500" size={16} />;
-    }
-  };
-
-  const getConnectionIcon = (type) => {
-    return connectionTypes[type]?.icon || <Server size={16} />;
-  };
-
-  const getConnectionColor = (type) => {
-    const colors = {
-      'opc-ua': 'border-blue-200 bg-blue-50',
-      'rest': 'border-green-200 bg-green-50',
-      'websocket': 'border-yellow-200 bg-yellow-50',
-      'grpc': 'border-purple-200 bg-purple-50',
-      'cpd': 'border-teal-200 bg-teal-50',
-      'sql': 'border-indigo-200 bg-indigo-50'
     };
-    return colors[type] || 'border-gray-200 bg-gray-50';
+    
+    setLogs(prevLogs => {
+      // Verhindere Duplikate basierend auf Nachricht und Zeitstempel
+      const isDuplicate = prevLogs.some(log => 
+        log.message === message && 
+        log.timestamp === timestamp
+      );
+      
+      if (isDuplicate) {
+        return prevLogs;
+      }
+      
+      return [logEntry, ...prevLogs.slice(0, 99)]; // Behalte nur 100 Logs
+    });
   };
 
-  return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-        {/* Header */}
-        <div className="p-4 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-900 mb-4">Protocol Test Client</h1>
-          <button
-            onClick={() => setShowConnectionDialog(true)}
-            className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+  // WebSocket Message Handler
+  const handleWebSocketMessage = (data) => {
+    switch (data.type) {
+      case 'connection_status':
+        updateConnectionStatus(data.data.connectionId, data.data.status);
+        break;
+      case 'log':
+        addLog(data.data.message, data.data.type);
+        break;
+      case 'data':
+        updateConnectionData(data.data);
+        break;
+      default:
+        console.log('Unknown WebSocket message type:', data.type);
+    }
+  };
+
+  // Log-Rendering mit eindeutigen Keys
+  const renderLogs = () => {
+    return (
+      <div className="bg-gray-900 text-white p-4 h-64 overflow-y-auto font-mono text-sm">
+        <div className="mb-2 text-green-400">
+          === Universal Protocol Test Client Logs ===
+        </div>
+        {logs.map((log) => (
+          <div 
+            key={log.id} // Verwende die eindeutige ID als Key
+            className={`mb-1 ${
+              log.type === 'error' ? 'text-red-400' :
+              log.type === 'success' ? 'text-green-400' :
+              log.type === 'warning' ? 'text-yellow-400' :
+              'text-gray-300'
+            }`}
           >
-            <Plus size={16} className="mr-2" />
-            Neue Connection
-          </button>
-        </div>
-
-        {/* Connections List */}
-        <div className="flex-1 overflow-y-auto p-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-3">Gespeicherte Connections</h3>
-          {connections.length === 0 ? (
-            <div className="text-center text-gray-500 py-8">
-              <Database size={48} className="mx-auto mb-2 opacity-50" />
-              <p className="text-sm">Keine Connections vorhanden</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {connections.map((connection) => (
-                <div
-                  key={connection.id}
-                  className={`p-3 rounded-lg border cursor-pointer hover:shadow-sm transition-shadow ${getConnectionColor(connection.type)}`}
-                  onClick={() => openConnection(connection)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      {getConnectionIcon(connection.type)}
-                      <div>
-                        <div className="font-medium text-sm">{connection.name}</div>
-                        <div className="text-xs text-gray-500">{connectionTypes[connection.type]?.name}</div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteConnection(connection.id);
-                      }}
-                      className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  <div className="mt-2 text-xs text-gray-600">
-                    {connection.type === 'opc-ua' && connection.config.endpoint}
-                    {connection.type === 'rest' && connection.config.baseUrl}
-                    {connection.type === 'websocket' && connection.config.url}
-                    {connection.type === 'grpc' && connection.config.address}
-                    {connection.type === 'cpd' && (connection.config.protocol === 'grpc' ? connection.config.address : connection.config.url)}
-                    {connection.type === 'sql' && `${connection.config.type}: ${connection.config.host}/${connection.config.database}`}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Logs */}
-        <div className="border-t border-gray-200 p-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
-            <Clock size={16} className="mr-2" />
-            Logs
-          </h3>
-          <div className="max-h-40 overflow-y-auto space-y-1">
-            {logs.slice(0, 10).map((log) => (
-              <div key={log.id} className="text-xs">
-                <span className="text-gray-500">{log.timestamp}</span>
-                <span className={`ml-2 ${
-                  log.type === 'success' ? 'text-green-600' :
-                  log.type === 'error' ? 'text-red-600' : 'text-gray-700'
-                }`}>
-                  {log.message}
-                </span>
-              </div>
-            ))}
+            <span className="text-gray-500">[{log.timestamp}]</span> {log.message}
           </div>
-        </div>
+        ))}
       </div>
+    );
+  };
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        {/* Tabs */}
-        {openTabs.length > 0 && (
-          <div className="bg-white border-b border-gray-200 px-4">
-            <div className="flex space-x-1 overflow-x-auto">
-              {openTabs.map((tab) => (
-                <div
-                  key={tab.id}
-                  className={`flex items-center space-x-2 px-4 py-3 border-b-2 cursor-pointer ${
-                    activeTab === tab.id 
-                      ? 'border-blue-500 text-blue-600 bg-blue-50' 
-                      : 'border-transparent text-gray-600 hover:text-gray-900'
-                  }`}
-                  onClick={() => setActiveTab(tab.id)}
-                >
-                  {getConnectionIcon(tab.type)}
-                  <span className="font-medium">{tab.name}</span>
-                  {getStatusIcon(tab.status)}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(tab.id);
-                    }}
-                    className="ml-2 p-0.5 text-gray-400 hover:text-gray-600"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Content Area */}
-        <div className="flex-1 p-6">
-          {activeTab ? (
-            <ConnectionWorkspace 
-              connection={openTabs.find(tab => tab.id === activeTab)}
-              onConnect={connectToService}
-              onDisconnect={disconnectFromService}
-              isLoading={isLoading}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              <div className="text-center">
-                <Database size={64} className="mx-auto mb-4 opacity-50" />
-                <h2 className="text-xl font-medium mb-2">Willkommen beim Protocol Test Client</h2>
-                <p>Wählen Sie eine Connection aus der Sidebar oder erstellen Sie eine neue.</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Connection Dialog */}
-      {showConnectionDialog && (
-        <ConnectionDialog 
-          onClose={() => setShowConnectionDialog(false)}
-          onSave={saveConnection}
-          connectionTypes={connectionTypes}
-        />
-      )}
-    </div>
-  );
-};
-
+  
 // Connection Workspace Component
 const ConnectionWorkspace = ({ connection, onConnect, onDisconnect, isLoading }) => {
   if (!connection) return null;
