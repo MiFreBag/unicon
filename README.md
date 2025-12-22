@@ -74,7 +74,7 @@ git clone https://github.com/yourusername/universal-protocol-client.git
 cd universal-protocol-client
 
 # Start with Docker Compose
-docker-compose up -d
+docker compose up --build
 
 # Access the application
 open http://localhost
@@ -151,6 +151,21 @@ open http://localhost
 - **Reverse Proxy**: Nginx configuration for production deployment
 - **Database Support**: PostgreSQL, MySQL, SQLite connectivity
 
+## 🐳 Containerisierung
+
+### Docker-Images bauen
+
+- Client: `docker build -t unicon-client:latest ./client`
+- Server: `docker build -t unicon-server:latest ./server`
+
+### Docker Compose
+
+Ein Basis-Setup für Client und Server steht in `docker-compose.yml` bereit. Der Client ist nach dem Start unter `http://localhost` erreichbar; die Server-API liegt unter `http://localhost:3001/unicon/api`.
+
+```bash
+docker compose up --build
+```
+
 ## 📁 Project Structure
 
 ```
@@ -196,6 +211,18 @@ DB_NAME=unicon              # Database name
 CORS_ORIGIN=*               # CORS allowed origins
 JWT_SECRET=your-secret      # JWT signing secret (if auth enabled)
 ```
+
+## 🧪 Tests
+
+Server-seitige Funktions-Tests lassen sich mit Jest und Supertest ausführen:
+
+```bash
+npm test --prefix server
+```
+
+## 🛠️ CI/CD
+
+Eine Beispiel-Jenkins-Pipeline befindet sich in `Jenkins/Jenkinsfile`. Sie installiert die Abhängigkeiten in allen Workspaces, führt die Server-Tests aus, baut den Frontend-Release und erzeugt Docker-Images für Client und Server. Die fertigen Frontend-Artefakte werden als Build-Archiv abgelegt.
 
 ### Connection Templates
 The application includes pre-configured templates for common scenarios:
