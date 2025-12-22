@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Database, Globe, Zap, Server, Clock, Activity, Search, CheckCircle2, Play, ListTree } from 'lucide-react'
+import { Database, Globe, Zap, Server, Clock, Activity, Search, CheckCircle2, Play, ListTree, History, RotateCcw, Trash2 } from 'lucide-react'
 import UniversalTestClient from './UniversalTestClient'
 
 const protocolOptions = [
@@ -53,6 +53,7 @@ const ConnectionExperience = () => {
   const [wizardStep, setWizardStep] = useState(1)
   const [dataSource, setDataSource] = useState({ name: '', type: 'OPC UA', host: '', notes: '' })
   const [quickConnect, setQuickConnect] = useState({ url: '', label: '' })
+  const [quickHistory, setQuickHistory] = useState([])
   const [selectedProtocol, setSelectedProtocol] = useState('opc-ua')
   const [logs, setLogs] = useState(initialLog)
   const [monitoredItems, setMonitoredItems] = useState(seededMonitoredItems)
@@ -67,6 +68,17 @@ const ConnectionExperience = () => {
     )
   }, [filter, monitoredItems])
 
+  const stats = useMemo(() => {
+    const activeCount = filteredItems.filter(item => item.state === 'Active').length
+    const idleCount = filteredItems.filter(item => item.state !== 'Active').length
+
+    return {
+      total: filteredItems.length,
+      activeCount,
+      idleCount
+    }
+  }, [filteredItems])
+
   const goNextStep = () => setWizardStep(step => Math.min(3, step + 1))
   const goPrevStep = () => setWizardStep(step => Math.max(1, step - 1))
 
@@ -79,12 +91,24 @@ const ConnectionExperience = () => {
     setWizardStep(1)
   }
 
-  const handleQuickConnect = () => {
-    if (!quickConnect.url) return
+  const logQuickConnect = (url, label) => {
+    const timestamp = new Date()
     setLogs(prev => [
-      { id: Date.now(), message: `Quick connect triggered for ${quickConnect.url}${quickConnect.label ? ` as ${quickConnect.label}` : ''}`, ts: new Date() },
+      { id: Date.now(), message: `Quick connect triggered for ${url}${label ? ` as ${label}` : ''}`, ts: timestamp },
       ...prev
     ])
+  }
+
+  const handleQuickConnect = (url = quickConnect.url, label = quickConnect.label) => {
+    const trimmedUrl = url.trim()
+    const trimmedLabel = label.trim()
+    if (!trimmedUrl) return
+
+    logQuickConnect(trimmedUrl, trimmedLabel)
+    setQuickHistory(prev => [
+      { id: Date.now(), url: trimmedUrl, label: trimmedLabel, ts: new Date() },
+      ...prev
+    ].slice(0, 5))
     setQuickConnect({ url: '', label: '' })
   }
 
@@ -186,12 +210,53 @@ const ConnectionExperience = () => {
             onChange={(e) => setQuickConnect({ ...quickConnect, label: e.target.value })}
           />
           <button
-            onClick={handleQuickConnect}
+            onClick={() => handleQuickConnect()}
             className="w-full px-4 py-2 rounded bg-emerald-600 text-white text-sm flex items-center justify-center space-x-2"
           >
             <Play className="w-4 h-4" />
             <span>Run connection test</span>
           </button>
+
+          <div className="border rounded-lg p-3 bg-gray-50">
+            <div className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+              <div className="flex items-center space-x-2">
+                <History className="w-4 h-4 text-gray-500" />
+                <span>Recent quick connects</span>
+              </div>
+              {quickHistory.length > 0 && (
+                <button
+                  className="text-xs text-blue-600 hover:underline"
+                  onClick={() => setQuickHistory([])}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {quickHistory.length === 0 ? (
+              <p className="text-xs text-gray-500">Run a test to populate your recent targets.</p>
+            ) : (
+              <div className="space-y-2 max-h-32 overflow-y-auto text-sm">
+                {quickHistory.map(entry => (
+                  <div key={entry.id} className="flex items-center justify-between p-2 bg-white rounded border">
+                    <div>
+                      <div className="font-medium">{entry.label || entry.url}</div>
+                      <div className="text-xs text-gray-500 flex items-center space-x-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{entry.ts.toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleQuickConnect(entry.url, entry.label)}
+                      className="inline-flex items-center space-x-1 px-3 py-1 text-xs rounded bg-blue-600 text-white"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Re-run</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="col-span-2 space-y-4">
@@ -235,16 +300,35 @@ const ConnectionExperience = () => {
                 <Activity className="w-4 h-4 text-gray-500" />
                 <span>Connection & data access log</span>
               </div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500">{logs.length} events recorded</p>
+                {logs.length > 0 && (
+                  <button
+                    onClick={() => setLogs([])}
+                    className="flex items-center space-x-1 text-xs text-red-600 hover:underline"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Clear log</span>
+                  </button>
+                )}
+              </div>
               <div className="space-y-2 max-h-48 overflow-y-auto">
-                {logs.map(log => (
-                  <div key={log.id} className="flex items-center justify-between text-sm border-b pb-1">
-                    <div className="flex items-center space-x-2">
-                      <Clock className="w-4 h-4 text-gray-400" />
-                      <span>{log.message}</span>
-                    </div>
-                    <span className="text-xs text-gray-500">{log.ts.toLocaleTimeString()}</span>
+                {logs.length === 0 ? (
+                  <div className="text-sm text-gray-500 flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-gray-400" />
+                    <span>Log is empty. Run a quick connect to see activity here.</span>
                   </div>
-                ))}
+                ) : (
+                  logs.map(log => (
+                    <div key={log.id} className="flex items-center justify-between text-sm border-b pb-1">
+                      <div className="flex items-center space-x-2">
+                        <Clock className="w-4 h-4 text-gray-400" />
+                        <span>{log.message}</span>
+                      </div>
+                      <span className="text-xs text-gray-500">{log.ts.toLocaleTimeString()}</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -267,6 +351,12 @@ const ConnectionExperience = () => {
               onChange={(e) => setFilter(e.target.value)}
             />
           </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 mb-4 text-sm">
+          <span className="px-3 py-1 bg-white border rounded-full">Total: {stats.total}</span>
+          <span className="px-3 py-1 bg-green-50 text-green-700 border border-green-100 rounded-full">Active: {stats.activeCount}</span>
+          <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-100 rounded-full">Idle: {stats.idleCount}</span>
         </div>
 
         <div className="overflow-x-auto">
