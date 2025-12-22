@@ -1,0 +1,52 @@
+pipeline {
+    agent any
+
+    tools {
+        nodejs 'node20'
+    }
+
+    environment {
+        CI = 'true'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install dependencies') {
+            steps {
+                sh 'npm ci --ignore-scripts'
+                sh 'npm ci --prefix server --ignore-scripts'
+                sh 'npm ci --prefix client --ignore-scripts'
+            }
+        }
+
+        stage('Run tests') {
+            steps {
+                sh 'npm test --prefix server'
+            }
+        }
+
+        stage('Build client') {
+            steps {
+                sh 'npm run build --prefix client'
+            }
+        }
+
+        stage('Build Docker images') {
+            steps {
+                sh 'docker build -t unicon-server:latest ./server'
+                sh 'docker build -t unicon-client:latest ./client'
+            }
+        }
+
+        stage('Archive artifacts') {
+            steps {
+                archiveArtifacts artifacts: 'client/dist/**', fingerprint: true
+            }
+        }
+    }
+}
