@@ -1,5 +1,5 @@
 // src/App.jsx
-import UniversalTestClient from './components/UniversalTestClient'
+import UniversalTestClient from './workspaces/OpcUaWorkspace'
 import './index.css'
 
 function App() {

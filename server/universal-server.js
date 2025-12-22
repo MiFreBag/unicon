@@ -3,6 +3,7 @@ const cors = require('cors');
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const fs = require('fs');
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost',
@@ -16,6 +17,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
 
 const PORT = process.env.PORT || 3001;
 const WS_PORT = process.env.WS_PORT || 8080;
+const DATA_DIR = process.env.CONNECTION_DATA_DIR || path.join(__dirname, 'data');
+const CONNECTIONS_FILE = path.join(DATA_DIR, 'connections.json');
 
 const parseAllowedOrigins = () => {
   const envOrigins = process.env.ALLOWED_ORIGINS
@@ -25,8 +28,59 @@ const parseAllowedOrigins = () => {
   return envOrigins.length > 0 ? envOrigins : DEFAULT_ALLOWED_ORIGINS;
 };
 
+const ensureDataStore = () => {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+};
+
+const normalizeConnection = (connection) => ({
+  id: connection.id || uuidv4(),
+  name: connection.name || 'Unbenannte Verbindung',
+  type: connection.type || 'unknown',
+  config: connection.config || {},
+  createdAt: connection.createdAt || new Date().toISOString(),
+  status: connection.status || 'disconnected'
+});
+
+const loadConnectionsFromFile = () => {
+  try {
+    ensureDataStore();
+
+    if (!fs.existsSync(CONNECTIONS_FILE)) {
+      return [];
+    }
+
+    const raw = fs.readFileSync(CONNECTIONS_FILE, 'utf8');
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    const list = Array.isArray(parsed) ? parsed : parsed.connections;
+
+    if (!Array.isArray(list)) return [];
+
+    return list.map(normalizeConnection).map(connection => ({
+      ...connection,
+      status: 'disconnected'
+    }));
+  } catch (error) {
+    console.error('Failed to load connections store:', error);
+    return [];
+  }
+};
+
+const persistConnections = async (connections) => {
+  ensureDataStore();
+
+  const payload = {
+    connections: connections.map(normalizeConnection)
+  };
+
+  await fs.promises.writeFile(CONNECTIONS_FILE, JSON.stringify(payload, null, 2), 'utf8');
+};
+
 const buildState = () => ({
-  connections: [],
+  connections: loadConnectionsFromFile(),
   activeConnections: new Map(),
   connectedClients: new Set()
 });
@@ -69,7 +123,7 @@ const createApp = (state = buildState()) => {
     }
   });
 
-  apiRouter.post('/connections', (req, res) => {
+  apiRouter.post('/connections', async (req, res) => {
     try {
       const connection = {
         id: uuidv4(),
@@ -79,6 +133,8 @@ const createApp = (state = buildState()) => {
       };
 
       connections.push(connection);
+
+      await persistConnections(connections);
 
       broadcast({
         type: 'log',
@@ -91,7 +147,7 @@ const createApp = (state = buildState()) => {
     }
   });
 
-  apiRouter.delete('/connections/:id', (req, res) => {
+  apiRouter.delete('/connections/:id', async (req, res) => {
     try {
       const connectionId = req.params.id;
       if (activeConnections.has(connectionId)) {
@@ -105,6 +161,8 @@ const createApp = (state = buildState()) => {
 
       connections.splice(index, 1);
 
+      await persistConnections(connections);
+
       broadcast({
         type: 'log',
         data: { message: 'Connection gelöscht', type: 'info' }
@@ -116,7 +174,7 @@ const createApp = (state = buildState()) => {
     }
   });
 
-  apiRouter.post('/connect', (req, res) => {
+  apiRouter.post('/connect', async (req, res) => {
     try {
       const { connectionId } = req.body;
       const connection = connections.find(c => c.id === connectionId);
@@ -127,6 +185,8 @@ const createApp = (state = buildState()) => {
 
       connection.status = 'connected';
       activeConnections.set(connectionId, { status: 'connected' });
+
+      await persistConnections(connections);
 
       broadcast({
         type: 'connection_status',
@@ -144,7 +204,7 @@ const createApp = (state = buildState()) => {
     }
   });
 
-  apiRouter.post('/disconnect', (req, res) => {
+  apiRouter.post('/disconnect', async (req, res) => {
     try {
       const { connectionId } = req.body;
       const connection = connections.find(c => c.id === connectionId);
@@ -155,6 +215,8 @@ const createApp = (state = buildState()) => {
 
       connection.status = 'disconnected';
       activeConnections.delete(connectionId);
+
+      await persistConnections(connections);
 
       broadcast({
         type: 'connection_status',
@@ -181,6 +243,42 @@ const createApp = (state = buildState()) => {
       activeConnections: activeConnections.size,
       connectedClients: connectedClients.size
     });
+  });
+
+  apiRouter.get('/connections/export', (req, res) => {
+    try {
+      res.setHeader('Content-Disposition', 'attachment; filename="connections-export.json"');
+      res.json({ success: true, connections: connections.map(normalizeConnection) });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  apiRouter.post('/connections/import', async (req, res) => {
+    try {
+      const payload = req.body;
+      const incoming = Array.isArray(payload) ? payload : payload.connections;
+
+      if (!Array.isArray(incoming)) {
+        return res.status(400).json({ success: false, error: 'Ungültiges Verbindungs-Format' });
+      }
+
+      const importedConnections = incoming.map(item => ({ ...normalizeConnection(item), status: 'disconnected' }));
+
+      connections.splice(0, connections.length, ...importedConnections);
+      activeConnections.clear();
+
+      await persistConnections(connections);
+
+      broadcast({
+        type: 'log',
+        data: { message: `Importierte ${importedConnections.length} Connections`, type: 'success' }
+      });
+
+      res.json({ success: true, connections: importedConnections, count: importedConnections.length });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   });
 
   app.use('/unicon/api', apiRouter);

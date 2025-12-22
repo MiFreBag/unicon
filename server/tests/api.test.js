@@ -1,13 +1,27 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const request = require('supertest');
-const { createApp, buildState } = require('../universal-server');
+
+const buildTestState = () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'unicon-test-'));
+  process.env.CONNECTION_DATA_DIR = tempDir;
+
+  jest.resetModules();
+  // eslint-disable-next-line global-require
+  const { createApp, buildState } = require('../universal-server');
+
+  return { createApp, buildState, tempDir };
+};
 
 describe('Universal server API', () => {
   let app;
   let state;
 
   beforeEach(() => {
-    state = buildState();
-    app = createApp(state);
+    const modules = buildTestState();
+    state = modules.buildState();
+    app = modules.createApp(state);
   });
 
   test('health endpoint reports status', async () => {
@@ -53,5 +67,26 @@ describe('Universal server API', () => {
 
     expect(deleteResponse.status).toBe(200);
     expect(state.connections).toHaveLength(0);
+  });
+
+  test('exports and imports connections', async () => {
+    const createResponse = await request(app)
+      .post('/unicon/api/connections')
+      .send({ name: 'Import/Export', type: 'grpc' });
+
+    expect(createResponse.status).toBe(200);
+
+    const exportResponse = await request(app).get('/unicon/api/connections/export');
+
+    expect(exportResponse.status).toBe(200);
+    expect(exportResponse.body.connections).toHaveLength(1);
+
+    const importResponse = await request(app)
+      .post('/unicon/api/connections/import')
+      .send(exportResponse.body.connections);
+
+    expect(importResponse.status).toBe(200);
+    expect(importResponse.body.count).toBe(1);
+    expect(importResponse.body.connections[0].status).toBe('disconnected');
   });
 });
