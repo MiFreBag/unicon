@@ -268,6 +268,33 @@ const createApp = (state) => {
     }
   });
 
+  apiRouter.put('/connections/:id', ENFORCE ? verifyJWTMiddleware : (req,res,next)=>next(), async (req, res) => {
+    try {
+      const id = req.params.id;
+      const idx = connections.findIndex(c => c.id === id);
+      if (idx === -1) return res.status(404).json({ success: false, error: 'Connection not found' });
+      const existing = connections[idx];
+      const updated = normalizeConnection({
+        id,
+        name: req.body?.name ?? existing.name,
+        type: req.body?.type ?? existing.type,
+        config: req.body?.config ?? existing.config,
+        createdAt: existing.createdAt || new Date().toISOString(),
+        status: 'disconnected'
+      });
+      connections[idx] = updated;
+      if (db) {
+        await db.upsertConnection(updated);
+      } else {
+        await persistConnections(connections, null);
+      }
+      broadcast({ type: 'log', data: { message: `Connection "${updated.name}" updated`, type: 'info', connectionId: id } });
+      res.json({ success: true, connection: updated });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   apiRouter.delete('/connections/:id', ENFORCE ? verifyJWTMiddleware : (req,res,next)=>next(), async (req, res) => {
     try {
       const connectionId = req.params.id;

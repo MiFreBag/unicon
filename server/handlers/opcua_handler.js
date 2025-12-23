@@ -16,10 +16,19 @@ class OPCUAHandler {
     const endpointUrl = this.config.endpointUrl;
     if (!endpointUrl) throw new Error('OPC UA endpointUrl is required');
 
+    const modeMap = { None: MessageSecurityMode.None, Sign: MessageSecurityMode.Sign, SignAndEncrypt: MessageSecurityMode.SignAndEncrypt };
+    const polMap = {
+      None: SecurityPolicy.None,
+      Basic128Rsa15: SecurityPolicy.Basic128Rsa15,
+      Basic256: SecurityPolicy.Basic256,
+      Basic256Sha256: SecurityPolicy.Basic256Sha256,
+      Aes128_Sha256_RsaOaep: SecurityPolicy.Aes128_Sha256_RsaOaep,
+      Aes256_Sha256_RsaPss: SecurityPolicy.Aes256_Sha256_RsaPss,
+    };
     const client = OPCUAClient.create({
       applicationName: 'Universal Test Client',
-      securityMode: MessageSecurityMode.None,
-      securityPolicy: SecurityPolicy.None,
+      securityMode: modeMap[this.config.securityMode] ?? MessageSecurityMode.None,
+      securityPolicy: polMap[this.config.securityPolicy] ?? SecurityPolicy.None,
       endpointMustExist: false,
       connectionStrategy: { initialDelay: 250, maxRetry: 1 }
     });
@@ -29,7 +38,12 @@ class OPCUAHandler {
     const timed = new Promise((_, reject) => setTimeout(() => reject(new Error('OPC UA connect timeout')), timeoutMs));
     await Promise.race([connectPromise, timed]);
 
-    const session = await client.createSession();
+    let session;
+    if (this.config.username) {
+      session = await client.createSession({ userName: this.config.username, password: this.config.password || '' });
+    } else {
+      session = await client.createSession();
+    }
 
     this.client = client;
     this.session = session;
