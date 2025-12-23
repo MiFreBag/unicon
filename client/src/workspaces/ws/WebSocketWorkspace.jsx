@@ -1,5 +1,7 @@
 // client/src/workspaces/ws/WebSocketWorkspace.jsx
 import React, { useEffect, useState } from 'react';
+import Button from '../../ui/Button.jsx';
+import Input from '../../ui/Input.jsx';
 
 export default function WebSocketWorkspace({ connection }) {
   const [message, setMessage] = useState('');
@@ -8,10 +10,9 @@ export default function WebSocketWorkspace({ connection }) {
   const [status, setStatus] = useState(connection?.status || 'disconnected');
 
   useEffect(() => {
-    const ws = new WebSocket(location.origin.replace('http', 'ws'));
-    ws.onmessage = (evt) => {
+    const onWs = (e) => {
+      const msg = e.detail || {};
       try {
-        const msg = JSON.parse(evt.data);
         if (msg?.type === 'ws' && msg?.data?.connectionId === connection?.id) {
           if (msg.data.event === 'message') {
             setMessages((prev) => [
@@ -33,9 +34,8 @@ export default function WebSocketWorkspace({ connection }) {
         }
       } catch (_) {}
     };
-    return () => {
-      try { ws.close(); } catch (_) {}
-    };
+    window.addEventListener('unicon-ws', onWs);
+    return () => window.removeEventListener('unicon-ws', onWs);
   }, [connection?.id, autoReconnect]);
 
   const sendMessage = async () => {
@@ -69,32 +69,12 @@ export default function WebSocketWorkspace({ connection }) {
           />
           Auto-reconnect
         </label>
-        <button
-          className="px-2 py-1 border rounded"
-          disabled={status === 'connected'}
-          onClick={() =>
-            fetch('/unicon/api/connect', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ connectionId: connection.id }),
-            })
-          }
-        >
-          Connect
-        </button>
-        <button
-          className="px-2 py-1 border rounded"
-          disabled={status !== 'connected'}
-          onClick={() =>
-            fetch('/unicon/api/disconnect', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ connectionId: connection.id }),
-            })
-          }
-        >
-          Disconnect
-        </button>
+        <Button variant="secondary" disabled={status==='connected'} onClick={() =>
+          fetch('/unicon/api/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connectionId:connection.id})})
+        }>Connect</Button>
+        <Button variant="secondary" disabled={status!=='connected'} onClick={() =>
+          fetch('/unicon/api/disconnect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connectionId:connection.id})})
+        }>Disconnect</Button>
       </div>
 
       <div className="flex-1 border border-gray-200 rounded-lg p-4">
@@ -116,20 +96,8 @@ export default function WebSocketWorkspace({ connection }) {
           ))}
         </div>
         <div className="flex gap-2">
-          <input
-            type="text"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Enter message..."
-            className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          />
-          <button
-            onClick={sendMessage}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Send
-          </button>
+          <Input value={message} onChange={(e)=>setMessage(e.target.value)} placeholder="Enter message..." className="flex-1" onKeyDown={(e)=>e.key==='Enter' && sendMessage()} />
+          <Button onClick={sendMessage}>Send</Button>
         </div>
       </div>
     </div>

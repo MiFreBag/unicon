@@ -46,8 +46,9 @@ module.exports = function createAuthRouter(db) {
       } else {
         const u = mem.get(email);
         if (!u) return res.status(401).json({ success: false, error: 'invalid credentials' });
-        const hash = crypto.createHash('sha256').update(password + u.salt).digest('hex');
-        if (hash !== u.hash) return res.status(401).json({ success: false, error: 'invalid credentials' });
+        // In-memory users are stored with bcrypt hashes in /register. Compare using bcrypt.
+        const ok = await bcrypt.compare(password, u.hash);
+        if (!ok) return res.status(401).json({ success: false, error: 'invalid credentials' });
         roles = u.roles;
       }
       const token = issueJWT({ id: user ? user.id : email, email, roles });
@@ -64,6 +65,8 @@ module.exports = function createAuthRouter(db) {
     // In a real system, generate a token and send email; here we respond success.
     return res.json({ success: true, message: 'If the account exists, a reset link was sent (demo).' });
   });
+
+  router.post('/logout', (req,res) => { return res.json({ success: true }); });
 
   return router;
 };

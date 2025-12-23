@@ -2,6 +2,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { listConnections, connectConnection, disconnectConnection, op } from '../../lib/api';
 import { Play, Square, RefreshCw } from 'lucide-react';
+import Button from '../../ui/Button.jsx';
+import Input from '../../ui/Input.jsx';
+import Spinner from '../../ui/Spinner.jsx';
 
 export default function SqlWorkspace() {
   const [connections, setConnections] = useState([]);
@@ -86,7 +89,7 @@ export default function SqlWorkspace() {
       <div className="flex items-end gap-3">
         <div>
           <label className="block text-sm text-gray-600">SQL Connection</label>
-          <select className="border rounded px-3 py-2 min-w-[16rem]" value={selectedId}
+          <select className="border border-swarco-grey-400 rounded px-3 py-2 min-w-[16rem] focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600" value={selectedId}
                   onChange={e => { setSelectedId(e.target.value); const cfg = sqlConnections.find(c=>c.id===e.target.value)?.config; setDriver(cfg?.driver||'sqlite'); }}>
             {sqlConnections.map(c => (
               <option key={c.id} value={c.id}>{c.name} ({c.config?.driver || 'sqlite'})</option>
@@ -94,12 +97,8 @@ export default function SqlWorkspace() {
           </select>
         </div>
         <div className="flex gap-2">
-          <button onClick={onConnect} disabled={!selectedId || loading || status==='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
-            {loading ? <RefreshCw size={14} className="animate-spin"/> : <Play size={14}/>} Connect
-          </button>
-          <button onClick={onDisconnect} disabled={!selectedId || loading || status!=='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
-            <Square size={14}/> Disconnect
-          </button>
+<Button variant="secondary" onClick={onConnect} disabled={!selectedId || loading || status==='connected'} leftEl={loading ? <Spinner size={14} /> : <Play size={14} className="mr-1"/>}>Connect</Button>
+          <Button variant="secondary" onClick={onDisconnect} disabled={!selectedId || loading || status!=='connected'} leftEl={<Square size={14} className="mr-1"/>}>Disconnect</Button>
         </div>
         <div className="text-sm text-gray-600">Driver: {driver}</div>
       </div>
@@ -107,18 +106,18 @@ export default function SqlWorkspace() {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <label className="block text-sm text-gray-600">SQL</label>
-          <textarea rows={6} className="w-full border rounded px-3 py-2 font-mono text-sm" value={sql} onChange={e=>setSql(e.target.value)} />
+          <textarea rows={6} className="w-full border border-swarco-grey-400 rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600" value={sql} onChange={e=>setSql(e.target.value)} />
         </div>
         <div className="space-y-2">
           <label className="block text-sm text-gray-600">Params (JSON array)</label>
-          <textarea rows={6} className="w-full border rounded px-3 py-2 font-mono text-sm" value={paramsText} onChange={e=>setParamsText(e.target.value)} />
+          <textarea rows={6} className="w-full border border-swarco-grey-400 rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600" value={paramsText} onChange={e=>setParamsText(e.target.value)} />
         </div>
       </div>
 
       <div>
-        <button onClick={runQuery} disabled={loading || status!=='connected'} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">
+        <Button onClick={runQuery} disabled={loading || status!=='connected'}>
           {loading ? 'Running…' : 'Execute'}
-        </button>
+        </Button>
       </div>
 
       <div className="flex items-center gap-2">

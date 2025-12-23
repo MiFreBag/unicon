@@ -1,6 +1,8 @@
 // client/src/workspaces/opcua/OpcUaWorkspace.jsx
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, Settings, Database } from 'lucide-react';
+import Button from '../../ui/Button.jsx';
+import Input from '../../ui/Input.jsx';
 
 export default function OpcUaWorkspace({ connection }) {
   const [nodes, setNodes] = useState([]);
@@ -27,9 +29,7 @@ export default function OpcUaWorkspace({ connection }) {
     <div className="h-full flex flex-col space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium">OPC UA Browser</h3>
-        <button onClick={browseNodes} disabled={isLoading} className="inline-flex items-center px-3 py-2 border rounded text-sm hover:bg-gray-50 disabled:opacity-50">
-          <RefreshCw size={16} className={isLoading ? 'mr-2 animate-spin' : 'mr-2'} /> Refresh
-        </button>
+        <Button variant="secondary" onClick={browseNodes} disabled={isLoading} leftEl={<RefreshCw size={16} className={isLoading ? 'mr-2 animate-spin' : 'mr-2'} />}>Refresh</Button>
       </div>
       <div className="flex-1 grid grid-cols-2 gap-4">
         <div className="border rounded p-4">
@@ -57,15 +57,15 @@ export default function OpcUaWorkspace({ connection }) {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Node ID</label>
-                <input type="text" value={selectedNode.nodeId} readOnly className="w-full px-3 py-2 bg-gray-50 border rounded text-sm" />
+                <Input value={selectedNode.nodeId} readOnly className="w-full" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Value</label>
-                <input type="text" value={nodeValue} onChange={(e) => setNodeValue(e.target.value)} className="w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                <Input value={nodeValue} onChange={(e)=>setNodeValue(e.target.value)} className="w-full" />
               </div>
               <div className="flex gap-2">
-                <button className="flex-1 px-3 py-2 border rounded text-sm hover:bg-gray-50">Read</button>
-                <button className="flex-1 px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">Write</button>
+                <Button variant="secondary" className="flex-1">Read</Button>
+                <Button className="flex-1">Write</Button>
               </div>
             </div>
           ) : (

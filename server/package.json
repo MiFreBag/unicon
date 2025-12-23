@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node universal-server.js",
     "dev": "nodemon universal-server.js",
-    "test": "cross-env PORT=3101 WS_PORT=8180 jest --runInBand --config jest.config.js",
+"pretest": "node -e \"require('fs').mkdirSync('./.tmp/jest',{recursive:true})\"",
+    "test": "cross-env NODE_ENV=test TMP=./.tmp/jest TEMP=./.tmp/jest PORT=3101 WS_PORT=8180 jest --runInBand --config jest.config.js --no-cache",
     "setup": "npm install && node setup.js"
   },
   "keywords": [

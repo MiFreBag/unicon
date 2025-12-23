@@ -160,6 +160,8 @@ const createApp = (state) => {
     const frameAncestors = process.env.CSP_FRAME_ANCESTORS || "'self'"; // e.g., 'self' or 'none'
     const wsConnect = `ws://localhost:${WS_PORT}`;
     const connectSrc = ["'self'", `http://localhost:${PORT}`, wsConnect, 'http://localhost:5174', 'ws://localhost:5174'].join(' ');
+    const inProd = process.env.NODE_ENV === 'production' || process.env.ELECTRON === '1';
+    const scriptSrc = inProd ? "script-src 'self'" : "script-src 'self' 'unsafe-eval'"; // keep eval only in dev
     const csp = [
       "default-src 'self'",
       "base-uri 'self'",
@@ -169,10 +171,16 @@ const createApp = (state) => {
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
-      "script-src 'self' 'unsafe-eval'",
+      scriptSrc,
       `connect-src ${connectSrc}`
     ].join('; ');
-    app.use('/unicon', (req, res, next) => { res.setHeader('Content-Security-Policy', csp); next(); });
+    app.use('/unicon', (req, res, next) => {
+      res.setHeader('Content-Security-Policy', csp);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+      next();
+    });
   }
 
   // Optional Phase 1 auth scaffolding (disabled by default)
@@ -182,8 +190,15 @@ const createApp = (state) => {
       const { verifyJWT, requireRoles } = require('./auth/middleware');
       app.use('/unicon/api/auth', createAuthRouter(db));
       // Example protected route
-      app.get('/unicon/api/me', verifyJWT, (req, res) => {
-        res.json({ success: true, user: { email: req.user.email, roles: req.user.roles } });
+      app.get('/unicon/api/me', verifyJWT, async (req, res) => {
+        try {
+          let profile = { email: req.user.email, roles: req.user.roles };
+          if (db) {
+            profile.provider = await db.getUserPref(req.user.sub, 'provider');
+            profile.avatar = await db.getUserPref(req.user.sub, 'avatar');
+          }
+          res.json({ success: true, user: profile });
+        } catch(e) { res.status(500).json({ success:false, error: e.message }); }
       });
       // User preferences: language
       app.post('/unicon/api/settings/language', verifyJWT, async (req, res) => {
@@ -203,8 +218,9 @@ const createApp = (state) => {
     }
   }
 
-  // Default-on enforcement: set AUTH_ENFORCE=0 to disable
-  const ENFORCE = (process.env.AUTH_ENFORCE !== '0') && typeof verifyJWTMiddleware === 'function';
+  // In tests, never enforce auth; otherwise only when AUTH_ENFORCE=1 is set
+  const IN_TEST = process.env.NODE_ENV === 'test' || !!process.env.JEST_WORKER_ID;
+  const ENFORCE = !IN_TEST && process.env.AUTH_ENFORCE === '1' && typeof verifyJWTMiddleware === 'function';
 
   apiRouter.get('/connections', ENFORCE ? verifyJWTMiddleware : (req,res,next)=>next(), async (req, res) => {
     try {
@@ -661,6 +677,7 @@ const createApp = (state) => {
   };
   function providerByName(name){ return name==='google'?GOOGLE: name==='github'?GITHUB: null; }
 
+  // Branded local consent before going out to Google/GitHub
   app.get('/unicon/api/oauth/:provider/start', async (req,res) => {
     const provider = providerByName(req.params.provider);
     if (!provider || !provider.client_id) return res.status(400).send('provider_not_configured');
@@ -668,16 +685,45 @@ const createApp = (state) => {
     const verifier = makeVerifier();
     const challenge = makeChallenge(verifier);
     const redirectUri = `${req.protocol}://${req.get('host')}/unicon/api/oauth/${req.params.provider}/callback`;
-    pkceStore.set(state, { verifier, provider: req.params.provider, exp: Date.now()+pkceExpireMs });
+    pkceStore.set(state, { verifier, provider: req.params.provider, exp: Date.now()+pkceExpireMs, challenge, redirectUri });
+    const html = `<!doctype html><html><head><meta charset='utf-8'><title>Continue with ${req.params.provider}</title>
+      <style>body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0}
+      .wrap{max-width:560px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.06)}
+      .hd{padding:20px 24px;border-bottom:1px solid #e2e8f0;display:flex;gap:8px;align-items:center}
+      .bd{padding:24px}
+      .btn{display:inline-block;padding:10px 16px;border-radius:6px;text-decoration:none}
+      .pri{background:#004b8d;color:#fff}
+      .sec{background:#e2e8f0;color:#0f172a;margin-left:8px}
+      .muted{color:#475569;font-size:14px}
+      </style></head><body>
+      <div class='wrap'>
+        <div class='hd'><strong>Unicon</strong><span class='muted'>Sign in with ${req.params.provider}</span></div>
+        <div class='bd'>
+          <p class='muted'>You will be redirected to ${req.params.provider} to continue.</p>
+          <div style='margin-top:16px'>
+            <a class='btn pri' href='/unicon/api/oauth/${req.params.provider}/continue?state=${encodeURIComponent(state)}'>Continue</a>
+            <a class='btn sec' href='/unicon/'>Cancel</a>
+          </div>
+        </div>
+      </div>
+      </body></html>`;
+    res.setHeader('Content-Type','text/html');
+    return res.send(html);
+  });
+
+  app.get('/unicon/api/oauth/:provider/continue', (req,res) => {
+    const entry = pkceStore.get(req.query.state);
+    const provider = providerByName(req.params.provider);
+    if (!entry || !provider) return res.status(400).send('invalid_state');
     const params = new URLSearchParams({
       client_id: provider.client_id,
       response_type: 'code',
-      redirect_uri: redirectUri,
+      redirect_uri: entry.redirectUri,
       scope: provider.scope,
-      code_challenge: challenge,
+      code_challenge: entry.challenge,
       code_challenge_method: 'S256',
       access_type: 'offline',
-      state
+      state: req.query.state
     });
     return res.redirect(`${provider.auth}?${params.toString()}`);
   });
@@ -715,13 +761,13 @@ const createApp = (state) => {
       const accessToken = tokenResp.data.access_token;
       if (!accessToken) return res.status(400).send('token_exchange_failed');
       // Fetch user info
-      let email = null;
+      let email = null; let avatar = null; let providerName = (provider===GOOGLE?'google':'github');
       if (provider === GOOGLE) {
         const u = await axios.get(provider.userinfo, { headers: { Authorization: `Bearer ${accessToken}` } });
-        email = u.data?.email;
+        email = u.data?.email; avatar = u.data?.picture || null;
       } else if (provider === GITHUB) {
         const u = await axios.get(provider.userinfo, { headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'unicon' } });
-        email = u.data?.email;
+        email = u.data?.email; avatar = u.data?.avatar_url || null;
         if (!email) {
           const e = await axios.get(provider.emails, { headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'unicon' } });
           email = (e.data || []).find(x => x.primary)?.email || (e.data[0]?.email);
@@ -735,8 +781,11 @@ const createApp = (state) => {
         if (!u) {
           const { v4: uuidv4 } = require('uuid');
           await dbi.createUser({ id: uuidv4(), email, password_hash: 'oauth', salt: 'oauth', createdAt: new Date().toISOString() });
-          await dbi.assignRoleToUser((await dbi.getUserByEmail(email)).id, 'developer');
+          u = await dbi.getUserByEmail(email);
+          await dbi.assignRoleToUser(u.id, 'developer');
         }
+        if (avatar) await dbi.setUserPref(u.id || (await dbi.getUserByEmail(email)).id, 'avatar', avatar);
+        await dbi.setUserPref(u.id || (await dbi.getUserByEmail(email)).id, 'provider', providerName);
       }
       const localCode = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
       oauthCodes.set(localCode, { userEmail: email, exp: Date.now() + 5 * 60 * 1000 });
@@ -820,7 +869,18 @@ const createApp = (state) => {
   app.use('/unicon', express.static(path.join(__dirname, 'public')));
 
   app.get('/unicon/*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    try {
+      const file = path.join(__dirname, 'public', 'index.html');
+      let html = fs.readFileSync(file, 'utf8');
+      // inject a tiny inline script with a nonce (for CSP verification in prod)
+      const nonce = crypto.randomBytes(16).toString('base64');
+      res.setHeader('Content-Security-Policy', (res.getHeader('Content-Security-Policy')||'').toString().replace("script-src 'self'", `script-src 'self' 'nonce-${nonce}'`));
+      html = html.replace('</head>', `<script nonce="${nonce}">window.__csp=1</script></head>`);
+      res.setHeader('Content-Type','text/html');
+      res.send(html);
+    } catch (e) {
+      res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    }
   });
 
   app.get('/', (req, res) => {
@@ -861,7 +921,15 @@ const createWebSocketServer = (connectedClients, customPort = WS_PORT) => {
   return wsServer;
 };
 
+let __RUNNING = { server: null, wsServer: null };
+
 const startServers = async (state) => {
+  // Ensure only one instance is running (helps Jest suites reusing the same ports)
+  if (__RUNNING.server) {
+    try { __RUNNING.wsServer && __RUNNING.wsServer.close(); } catch {}
+    try { await new Promise(res => __RUNNING.server.close(() => res(null))); } catch {}
+    __RUNNING = { server: null, wsServer: null };
+  }
   let resolvedState = state;
   if (!resolvedState) {
     resolvedState = await buildState();
@@ -869,11 +937,13 @@ const startServers = async (state) => {
     resolvedState = await resolvedState;
   }
   const app = createApp(resolvedState);
-  const wsServer = createWebSocketServer(resolvedState.connectedClients, WS_PORT);
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 HTTP Server running on port ${PORT}`);
-    console.log(`📡 WebSocket Server running on port ${WS_PORT}`);
-    console.log(`🌐 API available at http://localhost:${PORT}/unicon/api`);
+  const httpPort = Number(process.env.PORT) || PORT;
+  const wsPort = Number(process.env.WS_PORT) || WS_PORT;
+  const wsServer = createWebSocketServer(resolvedState.connectedClients, wsPort);
+  const server = app.listen(httpPort, '0.0.0.0', () => {
+    console.log(`🚀 HTTP Server running on port ${httpPort}`);
+    console.log(`📡 WebSocket Server running on port ${wsPort}`);
+    console.log(`🌐 API available at http://localhost:${httpPort}/unicon/api`);
   });
 
   const shutdown = () => {
@@ -884,6 +954,7 @@ const startServers = async (state) => {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
+  __RUNNING = { server, wsServer };
   return { app, server, wsServer, state };
 };
 

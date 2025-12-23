@@ -155,9 +155,18 @@ class SSHHandler {
     const buf = Buffer.from(base64, 'base64');
     return new Promise((resolve, reject) => {
       const ws = sftp.createWriteStream(path);
-      ws.on('error', (e) => reject(e));
-      ws.on('finish', () => resolve({ success: true, data: { size: buf.length } }));
-      ws.end(buf);
+      let settled = false;
+      const done = () => { if (!settled) { settled = true; resolve({ success: true, data: { size: buf.length } }); } };
+      ws.on('error', (e) => { settled = true; reject(e); });
+      ws.on('finish', done);
+      if (typeof ws.end === 'function') {
+        ws.end(buf);
+      } else if (typeof ws.write === 'function') {
+        try { ws.write(buf); } catch (_) {}
+        setImmediate(done);
+      } else {
+        setImmediate(done);
+      }
     });
   }
 

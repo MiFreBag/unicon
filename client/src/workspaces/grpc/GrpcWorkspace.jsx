@@ -1,7 +1,7 @@
 // client/src/workspaces/grpc/GrpcWorkspace.jsx
-import React from 'react';
-
 import React, { useState } from 'react';
+import Button from '../../ui/Button.jsx';
+import Input from '../../ui/Input.jsx';
 
 export default function GrpcWorkspace() {
   const [address, setAddress] = useState('localhost:50051');
@@ -43,31 +43,26 @@ export default function GrpcWorkspace() {
       <h3 className="text-lg font-medium">gRPC Workspace</h3>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-sm">Address</label>
-          <input className="w-full border rounded px-2 py-1" value={address} onChange={e=>setAddress(e.target.value)} placeholder="localhost:50051" />
+          <Input label="Address" value={address} onChange={e=>setAddress(e.target.value)} placeholder="localhost:50051" />
         </div>
         <div>
-          <label className="block text-sm">Package</label>
-          <input className="w-full border rounded px-2 py-1" value={pkg} onChange={e=>setPkg(e.target.value)} placeholder="my.package" />
+          <Input label="Package" value={pkg} onChange={e=>setPkg(e.target.value)} placeholder="my.package" />
         </div>
         <div>
-          <label className="block text-sm">Service</label>
-          <input className="w-full border rounded px-2 py-1" value={svc} onChange={e=>setSvc(e.target.value)} placeholder="MyService" />
+          <Input label="Service" value={svc} onChange={e=>setSvc(e.target.value)} placeholder="MyService" />
         </div>
         <div>
-          <label className="block text-sm">Method</label>
-          <input className="w-full border rounded px-2 py-1" value={method} onChange={e=>setMethod(e.target.value)} placeholder="SayHello" />
+          <Input label="Method" value={method} onChange={e=>setMethod(e.target.value)} placeholder="SayHello" />
         </div>
       </div>
       <div>
-        <label className="block text-sm">Proto (path under server/proto or absolute)</label>
-        <input className="w-full border rounded px-2 py-1" value={proto} onChange={e=>setProto(e.target.value)} placeholder="helloworld.proto" />
+        <Input label="Proto (path under server/proto or absolute)" value={proto} onChange={e=>setProto(e.target.value)} placeholder="helloworld.proto" />
       </div>
       <div>
-        <label className="block text-sm">Payload (JSON)</label>
-        <textarea className="w-full border rounded px-2 py-1 font-mono text-sm" rows={6} value={payload} onChange={e=>setPayload(e.target.value)} />
+        <label className="block text-sm font-medium text-swarco-grey-900 mb-1">Payload (JSON)</label>
+        <textarea className="w-full border border-swarco-grey-400 rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600" rows={6} value={payload} onChange={e=>setPayload(e.target.value)} />
       </div>
-      <button className="px-3 py-1.5 border rounded" onClick={callUnary}>Call Unary</button>
+      <Button onClick={callUnary}>Call Unary</Button>
       {response && (
         <div className="text-sm bg-gray-50 border rounded p-3 mt-2">
           <pre>{JSON.stringify(response, null, 2)}</pre>

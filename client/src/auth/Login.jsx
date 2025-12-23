@@ -1,5 +1,6 @@
 // client/src/auth/Login.jsx
 import React, { useState } from 'react';
+import { KeyRound, Github } from 'lucide-react';
 import { apiPost } from '../lib/api';
 import { setToken } from '../lib/auth';
 
@@ -43,10 +44,9 @@ export default function Login({ onLoggedIn }) {
                 {error && <div className="text-red-600 text-sm">{error}</div>}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[16px] leading-6 font-semibold text-gray-700">Username</label>
+                    <label className="text-[16px] leading-6 font-semibold text-gray-700">Email</label>
                     <span className="text-[12px] text-gray-400">*</span>
                   </div>
-                  <label className="text-[16px] leading-6 font-semibold text-gray-700">Username</label>
                   <input type="email" className="w-full border rounded px-3 py-2 h-10" value={email} onChange={e=>setEmail(e.target.value)} required />
                 </div>
                 <div className="space-y-1">
@@ -57,15 +57,26 @@ export default function Login({ onLoggedIn }) {
                   <input type="password" className="w-full border rounded px-3 py-2 h-10" value={password} onChange={e=>setPassword(e.target.value)} required />
                 </div>
                 <div className="flex items-center gap-4 pt-2">
-                  <button type="button" className="h-10 px-4 border rounded text-sm" onClick={() => {
+                  {/* Demo OAuth (local) */}
+                  <button type="button" aria-label="Continue with Demo OAuth" title="Continue with Demo OAuth" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => {
                     const redirect = `${location.origin}/unicon/auth/callback`;
                     const state = Math.random().toString(36).slice(2);
                     const url = `/unicon/api/oauth/authorize?client_id=demo&redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(state)}`;
                     location.href = url;
->Continue with OAuth (Demo)</button>
-                  <button type="button" className="h-10 px-4 border rounded text-sm" onClick={() => { location.href = '/unicon/api/oauth/google/start'; }}>Sign in with Google</button>
-                  <button type="button" className="h-10 px-4 border rounded text-sm" onClick={() => { location.href = '/unicon/api/oauth/github/start'; }}>Sign in with GitHub</button>
-                  <button disabled={loading} className="w-48 h-10 bg-[#004b8d] text-white rounded hover:bg-[#003a6c] disabled:opacity-50">
+                  }}>
+                    <KeyRound size={18} aria-hidden="true" />
+                  </button>
+                  {/* Google */}
+<button type="button" aria-label="Sign in with Google" title="Sign in with Google" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => { location.href = '/unicon/oauth/consent?provider=google'; }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                      <path fill="#EA4335" d="M12 11.9999v3.8h5.3c-.2 1.2-1.4 3.5-5.3 3.5-3.2 0-5.9-2.6-5.9-5.9s2.7-5.9 5.9-5.9c1.8 0 3 .7 3.7 1.3l2.5-2.4C16.7 4.2 14.6 3.3 12 3.3 6.9 3.3 2.8 7.4 2.8 12.5S6.9 21.7 12 21.7c6.9 0 9.5-4.8 9.5-7.2 0-.5-.1-.8-.1-1.1H12z"/>
+                    </svg>
+                  </button>
+                  {/* GitHub */}
+<button type="button" aria-label="Sign in with GitHub" title="Sign in with GitHub" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => { location.href = '/unicon/oauth/consent?provider=github'; }}>
+                    <Github size={18} aria-hidden="true" />
+                  </button>
+                  <button type="submit" disabled={loading} className="w-48 h-10 bg-[#004b8d] text-white rounded hover:bg-[#003a6c] disabled:opacity-50">
                     {loading ? 'Signing in…' : 'Login'}
                   </button>
                   <button type="button" className="text-sm text-blue-700 hover:underline" onClick={async () => {

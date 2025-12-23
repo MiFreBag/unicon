@@ -176,7 +176,7 @@ const RestWorkspace = ({ connection }) => {
               aria-label="Endpoint"
               className="flex-1"
             />
-            <Button onClick={sendRequest} disabled={isLoading || connection?.status !== 'connected'} leftEl={isLoading ? <RefreshCw size={16} className="mr-2 animate-spin"/> : <Send size={16} className="mr-2"/>}>
+            <Button onClick={sendRequest} disabled={isLoading || connection?.status !== 'connected'} leftEl={isLoading ? <span className="mr-2"><span className="sr-only">Loading</span></span> : <Send size={16} className="mr-2"/>}>
               Send
             </Button>
           </div>

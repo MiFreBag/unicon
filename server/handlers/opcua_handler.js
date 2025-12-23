@@ -79,8 +79,9 @@ class OPCUAHandler {
 
     const variant = this._coerceVariant(value, dt);
     const statusCode = await this.session.writeSingleNode(nodeId, variant);
-    const ok = statusCode && statusCode.value === 0; // StatusCodes.Good
-    return { success: ok, statusCode: statusCode?.name || String(statusCode) };
+    const scStr = statusCode?.name || String(statusCode || '');
+    const ok = !!statusCode && (statusCode.value === 0 || scStr.includes('Good'));
+    return { success: ok, statusCode: scStr };
   }
 
   async _inferDataTypeForNode(nodeId) {
