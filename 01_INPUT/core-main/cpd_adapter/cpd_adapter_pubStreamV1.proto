@@ -1,0 +1,108 @@
+
+syntax = "proto3";
+
+package core.cpd_adapter_pubStreamV1;
+
+// Interface exported by the server.
+service cpdPubStream {
+  rpc PubStream(stream PubStreamReq) returns (stream PubStreamResp) {}
+}
+
+
+
+// Publications
+//--------------
+message PubStreamReq {
+    uint32 reqId = 1; //provided by client, so he is able to associate the response
+    bool forceResp =  2; //force to also responde in none failure cases // default=false ony resp if errror
+    oneof cmd {
+        PubStreamInit initialize = 3;
+
+        // sends Standard- or Delta Topic 1:1, first call defines type.
+        // first call with publish() or publishUpdate() defines a Standard Topic, first call with deltaPublish() defines a Delta Topic.
+        TopicData publish = 4;
+        
+        // updates Standard- or Delta Topic by merging with current data, first call defines type:
+        // first call with publish() or publishUpdate() defines a Standard Topic, first call with deltaPublish() defines a Delta Topic.
+        // to delete an existing field define it as null/undefined in the payload.
+        TopicData publishUpdate = 5;
+        
+        // sends as basic topic, does not store any state in the adapter.
+        TopicData sendTopic = 6;  
+
+        // send as delta topic (.$ appended to topicname)
+        // to delete an existing field define it as null/undefined in the payload.
+        TopicData deltaPublish = 7;  
+        
+        TopicData publishUpdateMd = 8;  // send as basic Metadata 1:1 to cpd, update provided fields only 
+        SetValid setValid = 9; // set valid flag true or false and publish new data. works for standard and delta topics
+        SetValidAll setValidAll = 10; // set all published topics from this stream  to valid/invalid. works for standard and delta topics
+        bool abandonAndStashAll = 11; // push all publihed topics to the abandon-stash. if topics not get published again they get automatically removed from cpd
+    };
+    
+}
+
+//in default mode PubStreamResponse get send only in case of Failure (ok code will never be send)
+message PubStreamResp {
+    uint32 reqId = 1;    //same id as on request
+    uint32 code = 2; //0=ok, >0 =failure
+    string message = 3;
+}
+
+
+
+message SetValid {
+    repeated string topics = 1;
+    bool valid  = 2;
+    string reason = 3;
+
+    oneof errorType {
+        Error error = 4;
+        TopicRef errorRef = 5;
+    }
+}
+
+message SetValidAll {
+    bool valid  = 1;
+    string reason = 2;
+
+    oneof errorType {
+        Error error = 3;
+        TopicRef errorRef = 4;
+    }
+}
+
+message Error {
+    uint32 code = 1;
+    string message = 2;
+}
+
+message TopicRef {
+    string topic = 1;
+}
+
+
+
+message PubStreamInit {
+    string clientClass = 1;
+    string clientName = 2;
+
+    //heartbeat settings only used when publishing over the stream
+    bool autoHeartbeat = 3; //if true the cpd-adapter manages hearbeat for every topic published
+    message OwnHeartbeat { //if defined client provides its own hb, if empty uses cpd-adapter global heartbeat
+        string hbTopic = 1; 
+        uint64 hbId = 2;
+    }
+    OwnHeartbeat ownHeartbeat = 4; //optional
+}
+
+
+message TopicData {
+    string topic = 1;
+    string data = 2;
+    //may be needed sooner or later: 
+    //RespMode responseMode = 3: enum onError=default, always = send resp onOk and onErr ..
+}
+
+
+

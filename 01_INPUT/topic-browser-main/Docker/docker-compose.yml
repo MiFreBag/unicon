@@ -1,0 +1,26 @@
+version: '3.7'
+
+networks:
+    frontend:
+        external: true
+    backend:
+        external: true
+
+services:
+    cpd-tobo-dev:
+        image: ${DOCKER_REGISTRY}/${CPD_TOBO_DEV_IMAGE}:${CPD_TOBO_DEV_TAG}
+        container_name: cpd-tobo-dev
+        hostname: cpd-tobo-dev
+        logging:
+          driver: none
+        ports:
+            - 8083:8080
+        env_file:
+            - ${BAG_CONF_DIR}/${RELEASE_NAME}/environment
+        networks:
+            backend:
+                aliases:
+                    - cpd
+            frontend:
+                aliases:
+                    - cpd

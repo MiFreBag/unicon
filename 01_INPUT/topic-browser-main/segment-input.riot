@@ -1,0 +1,157 @@
+
+<segment-input>
+
+  <div class="span-container">
+    <span class="text">
+      some text
+    </span>
+    <input class="input" value={state.text} 
+          onkeydown={onKeyDown} oninput={onInput} onfocusout={props.onloosefocus} onclick={onClick}/>
+  </div>
+
+  
+  
+  <script>
+
+    export default {
+        state: {
+          spanRef : null,
+          inputRef  : null,
+          text : '',
+        },
+        
+        onMounted(props, state){
+
+          this.state.spanRef = this.$('span');
+          this.state.inputRef = this.$('input');
+          
+        if(props.edit){
+            this.ac =  new Autocomplete(this.state.inputRef, {
+              data: [
+                {label: "Sensor", value: 42},
+                {label: "Abschn", value: 42},
+                {label: "Value", value: 42}
+              ],
+              maximumItems: 0,
+              threshold: 0,
+              onSelectItem: ({label, value}) => {
+                this._updateText(label);
+                  //this.update();
+                  console.log("user selected:", label, value);
+              }
+            });
+          }
+          
+          console.log(props);
+        },
+        
+        onBeforeUpdate(props,state){
+          this.state.text = props.text;
+          this.state.inputRef.value = props.text; // caution: this is needed here becaus update doesnt handle it properly
+          this.updateSpan(props.text);
+        },
+
+        updateSpan(text){
+          this.state.spanRef.textContent = text;
+        },
+        
+        onClick (e){
+          if(this.props.onclicked){
+            //e.preventDefault()
+            this.props.onclicked(e);
+            console.log("click1",e, e.target.selectionStart);
+          }
+        },
+
+        onKeyDown(e){
+          const fEnd = e.target.selectionStart >= this.state.text.length;
+          const fBegin = e.target.selectionStart == 0;
+          const cb = this.props.nav_cb;
+
+          //console.log("keydown", e.code, e.code==='Delete')
+
+          if(fEnd && e.code==='Delete'){
+              e.preventDefault()
+              if(cb) cb('rightdel');
+            
+          }
+          else if(fBegin && e.code==='Backspace'){
+              e.preventDefault()
+              if(cb) cb('leftdel');
+          }
+          else if(fBegin && e.code==='ArrowLeft'){
+              e.preventDefault()
+              if(cb) cb('leftmove');
+          }
+          else if(fEnd && e.code==='ArrowRight'){
+            e.preventDefault()
+            if(cb) cb('rightmove');
+          }
+
+        },
+
+        onInput(e){
+          if(this.props.oninputchanged){
+            //e.preventDefault()
+            const text = e.target.value;
+            console.log(">>>>", text);
+            this._updateText(text);
+        
+          }
+
+        },
+
+        _updateText(text){
+            this.state.text = text;
+            this.updateSpan(text);
+            this.props.oninputchanged(text);
+        }
+    }
+
+  </script>
+  <style>
+
+    .span-container {
+      display: inline-block;
+      position: relative;
+      left: -4px;
+    }
+
+     .span-container-hl {
+      left: -4px;
+    }
+    
+    .input,
+    .text {
+      margin: 0;
+      padding: 0px 2px;
+      font-size: 24px;
+      line-height: 32px;
+      border: 1px solid #ccc;
+      box-radius: 3px;
+      height: 36px;
+      font: 20px/20px sans-serif;
+      /* font: they should use same font; */
+    }
+
+    .text {
+      padding-right: 0px;
+      display: inline-block;
+      visibility: hidden;
+      white-space: pre;
+      vertical-align: bottom;
+    }
+    
+    .input {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      
+      
+    }
+
+  </style>
+</segment-input>

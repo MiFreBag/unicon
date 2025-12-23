@@ -1,0 +1,64 @@
+<topicbrowser-filter-simple>
+  <div class="container">
+
+    <div class="input-group input-group-sm mb-1 col-sm-1">
+      <span class="input-group-text"> Topic-Pattern</span>
+      <input type="text" class="form-control" oninput="{textChanged}" placeholder="e.g. sensors"
+      type="text" class="{ state.topictextError? 'form-control is-invalid' : 'form-control'}">
+
+    </div>
+
+      
+      
+  </div>
+  <script>
+
+    export default {
+        state: {
+            topicPostfix: "",
+            topicpatternError: true,
+            filter:{
+              topicpattern : "",
+              topictext : "",
+              payload : "",
+              browse_topicpattern : "",
+              browse_topictext : "",
+              fuzzy: true,
+            }
+        },
+        // this.wss = this.props.wss;
+        // console.log(this.wss);
+
+        onMounted(props, state){
+            console.log(props);
+            this.message = "just started up"
+            this.delimiter = '.'; // mqtt=/
+            this.swc = this.delimiter==='.'? '\\*' : '\\+';
+            this.ewc = this.delimiter==='.'? '.#' : '/#';
+            //this.update();
+        },
+
+        textChanged(e) {
+          this.state.filter.topicpattern = e.target.value;
+          this.state.filter.browse_topicpattern = e.target.value;
+          this.props.onUpdateQuery(this.state.filter);
+          this.update();
+        },
+        
+
+}
+  </script>
+  <style>
+    .myButton {
+      background-color:#44c767;
+    }
+    .myButton:hover {
+      background-color:#5cbf2a;
+    }
+    .myButton:active:enabled {
+      position:relative;
+      top:1px;
+      cursor: pointer;
+    }
+  </style>
+</topicbrowser-filter-simple>

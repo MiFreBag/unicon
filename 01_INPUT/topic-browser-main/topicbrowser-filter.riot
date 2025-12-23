@@ -1,0 +1,122 @@
+<topicbrowser-filter>
+  <div class="container">
+    <!-- <div class="input-group input-group-sm mb-1">
+      <span class="input-group-text" id="basic-addon1">topic-pattern</span>
+      <input type="text" id="pattern"class="form-control" oninput="{topicChanged}" placeholder="e.g. sw.sensors.#"
+      type="text" class="{ state.topicpatternError? 'form-control is-invalid' : 'form-control'}">
+    </div> -->
+
+    <smart-topic-input  wsconn={props.wsconn} oninput="{topicChanged}">
+    </smart-topic-input>
+
+   
+
+    <div class="input-group input-group-sm mb-1 col-sm-1">
+      <span class="input-group-text"> topic-text</span>
+      <input type="text" class="form-control" oninput="{textChanged}" placeholder="e.g. sensors"
+      type="text" class="{ state.topictextError? 'form-control is-invalid' : 'form-control'}">
+
+      <span class="input-group-text" id="basic-addon1">payload</span>
+      <input type="text" class="form-control" oninput="{payloadChanged}" placeholder="e.g. class=sensor"
+      type="text" spellcheck="false" class="{ state.payloadError? 'form-control is-invalid' : 'form-control'}">
+    </div>
+
+      
+      
+  </div>
+  <script>
+
+    export default {
+        state: {
+            topicPostfix: "",
+            topicpatternError: true,
+            filter:{
+              topicpattern : "",
+              topictext : "",
+              payload : "",
+              browse_topicpattern : "",
+              browse_topictext : "",
+            }
+        },
+        // this.wss = this.props.wss;
+        // console.log(this.wss);
+
+        onMounted(props, state){
+            console.log(props);
+            this.message = "just started up"
+            this.delimiter = '.'; // mqtt=/
+            this.swc = this.delimiter==='.'? '\\*' : '\\+';
+            this.ewc = this.delimiter==='.'? '.#' : '/#';
+            //this.update();
+        },
+
+        buildAndSetFilterTopicText(){
+          //adapt browse_topictext
+          const formTopicPattern = this.state.filter.topicpattern;
+          const regex = new RegExp(this.delimiter+this.swc,"g");
+          this.state.filter.browse_topictext = formTopicPattern.endsWith(this.ewc)? formTopicPattern.slice(0,-1) : formTopicPattern;
+          this.state.filter.browse_topictext = this.state.filter.browse_topictext.replace(regex, ' ');
+          //add original 
+          this.state.filter.browse_topictext += ' ' + this.state.filter.topictext;
+
+        },
+
+        topicChanged(e) {
+          if(this.state.filter.topicpattern != e.target.value){
+           this.state.filter.topicpattern = e.target.value;
+
+            let dotIdx = this.state.filter.topicpattern.lastIndexOf(this.delimiter);
+            this.state.topicpatternError = (dotIdx <= 0);
+          
+            //adapt topictext
+            this.buildAndSetFilterTopicText();
+          
+          
+            console.log(dotIdx);
+            if(dotIdx>0){
+              let topicPattern = this.state.filter.topicpattern.slice(0,dotIdx)+this.ewc;
+              this.state.topicPostfix = this.state.filter.topicpattern.slice(dotIdx+1);
+
+              if(this.state.filter.browse_topicpattern != topicPattern || true){
+                this.state.filter.browse_topicpattern = topicPattern;
+                this.props.onUpdateQuery(this.state.filter);
+              }
+            }
+          }
+          
+          this.update();
+        },
+
+        textChanged(e) {
+          this.state.filter.topictext = e.target.value;
+          //adapt browse_topictext
+          this.buildAndSetFilterTopicText();
+          this.props.onUpdateQuery(this.state.filter);
+          this.update();
+        },
+        
+
+        payloadChanged(e) {
+          if(this.state.filter.payload !== e.target.value){
+            this.state.filter.payload = e.target.value;
+            this.props.onUpdateQuery(this.state.filter);
+            this.update();
+          }
+        },
+
+}
+  </script>
+  <style>
+    .myButton {
+      background-color:#44c767;
+    }
+    .myButton:hover {
+      background-color:#5cbf2a;
+    }
+    .myButton:active:enabled {
+      position:relative;
+      top:1px;
+      cursor: pointer;
+    }
+  </style>
+</topicbrowser-filter>

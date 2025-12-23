@@ -1,0 +1,10 @@
+serviceName:            cpd-tobo-dev
+producedDockerImage:    bergauer/services/cpd/cpd-tobo-dev
+gitReleaseBranch:       main
+
+dockerBuildDir:         .
+dockerFile:             Docker/Dockerfile
+
+helmCharts:             true
+dockerCompose:          true
+

@@ -1,0 +1,7 @@
+docker_registry: "docker.bergauer.dev:5000"
+
+env:
+    SERVICENAME:        "cpd-tobo-dev"
+    HTTP_PORT:          "8080"
+    HTTP_NODEPORT:      "30018"
+

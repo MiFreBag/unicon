@@ -1,0 +1,37 @@
+
+<nav-bar>
+    <nav class="navbar navbar-expand navbar-light bg-light">
+        <div class="container-fluid">
+          <a class="navbar-brand" href="#">TOBO (dev)</a>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavAltMarkup" aria-controls="navbarNavAltMarkup" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+          </button>
+
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+              <li each={ page in props.pages } class="nav-item"  >
+                <a class="{ props.activepage === page.page ? 'nav-link active' : 'nav-link'}" 
+                    onclick="{() => props.onPageSelect(page.page)}" href="#">{page.name}</a>
+              </a>
+            </ul>
+          </div>
+        </div>
+      </nav>
+  
+  
+  <script>
+
+    export default {
+        state: {
+          activepage : "subs",
+        },
+        
+        onMounted(props, state){
+            console.log(props);
+        },
+    }
+
+  </script>
+  <style>
+  </style>
+</nav-bar>

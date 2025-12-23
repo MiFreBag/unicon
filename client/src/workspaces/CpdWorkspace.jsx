@@ -18,6 +18,7 @@ import {
   Zap,
   Globe
 } from 'lucide-react';
+import Button from '../ui/Button.jsx';
 
 const CpdWorkspace = ({ connection }) => {
   const [activeTab, setActiveTab] = useState('topics');
@@ -367,6 +368,12 @@ const CpdWorkspace = ({ connection }) => {
 
   // Handle incoming WebSocket messages
   useEffect(() => {
+    const onWs = (e) => handleWebSocketMessage(e.detail || {});
+    window.addEventListener('unicon-ws', onWs);
+    return () => window.removeEventListener('unicon-ws', onWs);
+  }, []);
+
+  useEffect(() => {
     const handleWebSocketMessage = (message) => {
       if (message.data?.payload?.type === 'topicChange') {
         const topicChange = message.data.payload;
@@ -430,14 +437,10 @@ const CpdWorkspace = ({ connection }) => {
                 placeholder="Ping message"
                 className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
-              <button
-                onClick={sendPing}
-                disabled={isLoading}
-                className="inline-flex items-center px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50"
-              >
-                {isLoading ? <RefreshCw size={16} className="animate-spin" /> : <Zap size={16} />}
-                <span className="ml-2">Ping</span>
-              </button>
+              <Button onClick={sendPing} disabled={isLoading} leftIcon={Zap}>
+                {isLoading ? <RefreshCw size={16} className="animate-spin" /> : null}
+                Ping
+              </Button>
             </div>
           </div>
 
@@ -457,14 +460,10 @@ const CpdWorkspace = ({ connection }) => {
                   placeholder="sw.* or sw.sensors.# or specific.topic.name"
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
                 />
-                <button
-                  onClick={browseTopics}
-                  disabled={isLoading}
-                  className="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-                >
-                  {isLoading ? <RefreshCw size={16} className="mr-2 animate-spin" /> : <Search size={16} className="mr-2" />}
+                <Button variant="secondary" className="w-full" onClick={browseTopics} disabled={isLoading} leftIcon={Search}>
+                  {isLoading ? <RefreshCw size={16} className="mr-2 animate-spin" /> : null}
                   Browse Topics
-                </button>
+                </Button>
               </div>
               
               {topics.length > 0 && (
@@ -523,14 +522,9 @@ const CpdWorkspace = ({ connection }) => {
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono focus:outline-none focus:ring-1 focus:ring-teal-500"
                 />
                 
-                <button
-                  onClick={publish}
-                  disabled={isLoading || !selectedTopic.trim()}
-                  className="w-full inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {isLoading ? <RefreshCw size={16} className="mr-2 animate-spin" /> : <Send size={16} className="mr-2" />}
-                  Publish ({publishMode})
-                </button>
+                <Button className="w-full" onClick={publish} disabled={isLoading || !selectedTopic.trim()} leftIcon={Send}>
+                  {`Publish (${publishMode})`}
+                </Button>
               </div>
             </div>
           </div>
@@ -558,27 +552,15 @@ const CpdWorkspace = ({ connection }) => {
               </div>
               
               <div className="flex flex-col justify-end space-y-2">
-                <button
-                  onClick={simpleSubscribe}
-                  disabled={isLoading || !topicPattern.trim()}
-                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                >
+                <Button onClick={simpleSubscribe} disabled={isLoading || !topicPattern.trim()} leftIcon={Activity}>
                   Simple Subscribe
-                </button>
-                <button
-                  onClick={subscribe}
-                  disabled={isLoading || !topicPattern.trim()}
-                  className="px-4 py-2 bg-green-700 text-white rounded hover:bg-green-800 disabled:opacity-50"
-                >
+                </Button>
+                <Button onClick={subscribe} disabled={isLoading || !topicPattern.trim()} leftIcon={Activity}>
                   Advanced Subscribe
-                </button>
-                <button
-                  onClick={getLatestData}
-                  disabled={isLoading || !topicPattern.trim()}
-                  className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-                >
+                </Button>
+                <Button variant="secondary" onClick={getLatestData} disabled={isLoading || !topicPattern.trim()} leftIcon={Database}>
                   Get Latest Data
-                </button>
+                </Button>
               </div>
             </div>
           </div>

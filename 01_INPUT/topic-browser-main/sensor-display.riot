@@ -1,0 +1,231 @@
+<sensor-display>
+  <div class="{props.data?.valid === false ? 'sbox failure' : 'sbox' }">
+    <div class="boxheader"> 
+      <div class='topic-path'>{topicPre}&nbsp; </div>
+      <div class='topic-title'>{topicPost}</div>
+    </div>
+      <div class="{contentStyle == 0 ? 'valuebox' : 'hidden'}"> 
+        <div class="ibox">
+          <div class="tablecell sval">{value}</div>
+          <div class="tablecell sunit">{unit}</div>
+        </div>
+
+        <div class="{tableVisible? 'stable' : 'hidden'}">
+          <table class="table">
+            <tlbody>
+              <tr each="{obj in objectList}">
+                <td>{obj.key}&nbsp;</td>
+                <td>{obj.value}</td>
+              </tr>
+            </tlbody>
+          </table>
+        </div>
+    
+      </div>
+      <div class="{contentStyle == 1 ? 'valuebox' : 'hidden'}"> 
+        <pre id="json">{data}</pre>
+      </div>
+    <div class="boxfooter">{date}
+      <div type="button" class="dropbutton" onclick="{onSwitchContentStyle}" ></button>
+      <div type="button" class="dropbutton" onclick="{onTableDrop}" ></button>
+    </div>
+  </div>
+
+  <script>
+    /*
+sw.sensor.baregg.frbe.absch.1.spur.2.v.Bus
+sw.sensor.*.frbe.absch.*.spur.*.v.*
+*/
+    export default {
+      state: {
+        activepage: "subs",
+      },
+
+      onMounted(props, state) {
+        console.log(props);
+        this.tableVisible = false;
+        this.contentStyle = props.contentstyle || 1;
+      },
+
+      onBeforeUpdate(props, state) {
+        if (!props.data) return;
+
+        
+        //const data = JSON.parse(props.data);
+        const data = props.data;
+        this.data = JSON.stringify(data, null, 2);
+        console.log(data);
+
+        this.topic = props.topic;
+
+
+        //SPLIT TOPIC NAME
+        let splitIdx = this.topic.lastIndexOf('.');
+        splitIdx = this.topic.slice(0,splitIdx).lastIndexOf('.');
+
+        if(splitIdx >= 0 ){
+          this.topicPre = this.topic.slice(0,splitIdx);
+          this.topicPost = this.topic.slice(splitIdx+1);
+        }
+        else{
+          this.topicPre = '';
+          this.topicPost = this.topic;
+        }
+        //END SPLIT TOPICNAME
+        
+        const ts = data.ts || Date.now();
+        this.date = Intl.DateTimeFormat("de-DE", {
+          dateStyle: "short",
+          timeStyle: "medium",
+        }).format(new Date(ts));
+
+        this.value = data.val || "-";
+        if (typeof this.value === "object") {
+          this.value = JSON.stringify( this.value);
+        }
+        this.unit = data.unit;
+        this.objectList = this.buildPropertyListRecursive(data);
+        //this.update();
+      },
+
+      buildPropertyListRecursive(obj, rlist = [], prefix = "") {
+        Object.keys(obj).forEach((key) => {
+          const value = obj[key];
+          const keyname = (prefix.length ? prefix + "." : prefix) + key;
+          if (typeof value === "object" && value) {
+            //prefix = (prefix.length? prefix+'.' : prefix) + key;
+            this.buildPropertyListRecursive(value, rlist, keyname);
+          } else if (value && value.isArray) {
+            value.forEach((element, i) => {
+              let nprefix = keyname + `[${i}]` + ".";
+              this.buildPropertyListRecursive(element, rlist, nprefix);
+            });
+          } else {
+            rlist.push({ key: keyname, value: value });
+          }
+        });
+        return rlist;
+      },
+
+      onTableDrop(){
+        this.tableVisible = !this.tableVisible;
+        this.update();
+      },
+
+      onSwitchContentStyle(){
+        this.contentStyle = this.contentStyle? 0 : 1;
+        this.update();
+      }
+    };
+  </script>
+  <style>
+
+
+    .hidden {
+      display : none;
+    }
+    
+    .sbox {
+      background-color: rgb(240, 239, 239);
+      border-radius: 10px;
+      border: 1px solid rgb(218, 217, 217);
+      /* display: inline-block; */
+      justify-content: left;
+      margin: 8px;
+      display : block;
+    }
+
+    .boxheader {
+      padding: 0px 14px 0px 14px;
+      display: block;
+      justify-content: space-between;
+      overflow: hidden;
+      line-break: anywhere;
+    }
+
+    .topic-path {
+      font-size: 76%;
+    }
+
+    .topic-title {
+      font-weight: bold;
+      margin-top: -6px;
+      padding-bottom: 2px;
+    }
+
+    .boxfooter {
+      padding: 0px 10px 0px 12px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .valuebox {
+      display: flex;
+      background-color: white;
+      justify-content: center;
+      flex-flow: wrap;
+
+    }
+
+    .ibox {
+      /* background-color: rgb(240, 240, 240); */
+      /* display: block; */
+      margin-top: -10px;
+      margin-bottom: -10px;
+      display: flex;
+      align-items: baseline;
+      line-height: 220%;
+      padding-left: 5px;
+      padding-right: 5px;
+      overflow: auto;
+    }
+    .tablecell {
+      /* _display: table-cell; */
+      /* display: inline-flex; */
+      _margin-left: 2px;
+      padding-right: 6px;
+    }
+    .sval {
+      padding-top: 11px;
+      padding-bottom: 16px;
+      margin-left: 8px;
+      font-size: 240%;
+      font-weight: bold;
+      vertical-align: baseline;
+    }
+    .stable {
+      font-size: 90%;
+      vertical-align: top;
+      line-height: 120%;
+      display: inline-flex;
+      padding-left: 12px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      /* display: block; */
+    }
+    .sunit {
+      font-size: 120%;
+      font-weight: bold;
+      vertical-align: baseline;
+    }
+
+    .dropbutton {
+      /* margin-left: auto; */
+      /* margin-right: auto; */
+      margin-top: 4px;
+      background-color: lightgray ;
+      border: 1px solid lightgray;
+      border-radius: 3px;
+      width: 16px;
+      height: 16px;
+      text-align: center;
+      display: inline-flex;
+      
+    }
+
+    .failure {
+      background-color : rgb(255,240,240);
+    }
+
+  </style>
+</sensor-display>

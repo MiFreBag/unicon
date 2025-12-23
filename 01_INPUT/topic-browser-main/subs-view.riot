@@ -1,0 +1,156 @@
+
+
+
+<subs-view>
+
+  <div class="container mb-2">
+    <div class="row  g-3">
+      <h4  class="col-auto mr-auto">Subscribed Topics</h4>
+      
+      <nav class="col-auto ms-auto" aria-label="Page navigation example">
+        <ul class="pagination">
+          <li class="page-item"><a class="page-link" onclick={onPrevpage} href="#">Previous</a></li>
+          <li class="page-item"><a class="page-link" href="#">1</a></li>
+          <li class="page-item"><a class="page-link" href="#">2</a></li>
+          <li class="page-item"><a class="page-link" href="#">3</a></li>
+          <li class="page-item"><a class="page-link" onclick={onNextpage} href="#">Next</a></li>
+        </ul>
+      </nav>
+
+
+    <div class="col-auto ms-auto" style="margin-top: 0px;">
+      <sensor-display topic={selTopic} data={selTopicData} contentStyle="0"> </sensor-display>
+    </div>
+
+      <div class="col-auto ms-auto">
+        <button type="button" class="btn btn-sm btn-primary mb-2" onclick="{onClearSubs}" >Clear Subscription</button>
+      </div>
+
+    </div>
+    
+    <!-- <ul class="list-group wrapper ">
+      <li class="list-group-item mb-0" 
+      each="{ (topic,idx) in props.subs.getTopicPaged(state.page)}"> 
+        <span class="{props.subs.allViewMetaData[topic].stablesec > 2? 'inactive-fade' : 'activated-el'}">
+        {idx+state.page*props.subs.maxPerPage}.&ensp; 
+          <span>&nbsp;{topic} &nbsp;
+
+          </span>  &nbsp;{props.subs.allData[topic]} 
+        </span>
+      </li>
+    </ul> -->
+
+    <ul class="list-group wrapper" style="text-overflow: ellipsis;">
+      <li class="{props.subs.allViewMetaData[topic].stablesec > 0
+          ? 'inactive-fade list-group-item mb-0' 
+          : 'activated-el list-group-item mb-0'}" 
+        each="{ (topic,idx) in props.subs.getTopicPaged(state.page)}"
+        onclick="{()=>onTopicClicked(topic,idx)}"> 
+        <span class="onlyoneline">
+        {idx+state.page*props.subs.maxPerPage}.&ensp; 
+          <span>&nbsp;{topic} &nbsp;
+
+          </span style="text-overflow: ellipsis;">  &nbsp;{JSON.stringify(props.subs.allData[topic])} 
+        </span>
+      </li>
+    </ul>
+
+    <div class="mybox">
+      <sensor-display each="{ (topic) in props.subs.getTopicPaged(state.page)}"
+        topic={topic} data={props.subs.allData[topic]}>
+      </sensor-display>
+    </div>
+
+  </div>
+  
+  
+  <script>
+
+    export default {
+
+      state: {
+        cnt : 0,
+        page : 0,
+      },
+          
+      onMounted(props, state){
+          console.log("subs-view on mounted called", props);
+          this.smartupdate = new props.smartupdateClass(()=> this.update());
+
+
+          let filter = {
+            topicpattern: "sw.sensor.#",
+            topictext: "",
+            payload: "",
+          }
+          //this.props.subs.addSubscription(null, this.onTopicData);
+          this.props.subs.onAnyDataCb = this.onTopicData;
+
+          //annimation tick & refresh
+          setInterval(function () {
+            const minTickCnt = this.props.subs.tick();
+            if(minTickCnt < 2){
+              this.update();
+            }
+          }.bind(this), 1000);
+          
+      },
+
+      onNextpage(){
+        this.state.page++;
+        this.update();
+      },  
+
+      onPrevpage(){
+        if(this.state.page>0) this.state.page--;
+        this.update();
+      },
+
+      onClearSubs(){
+        this.props.subs.removeAllSubscription();
+        this.update();
+      },
+    
+      onTopicData(){
+        this.state.cnt++;
+        
+        this.selTopicData = this.props.subs.getTopicData(this.selTopic);
+        
+        //this.update();
+        this.smartupdate.update();
+      },
+      onTopicClicked(topic, idx){
+        console.log(`Topic clicked: ${topic}, ${idx}`);
+        this.selTopic = topic;
+        this.onTopicData();
+      }
+}
+
+  </script>
+
+  <style>
+    .activated-el {
+      background-color : rgb(210, 236, 210);
+      color : rgb(255, 00, 0);
+      /* color : rgb(0, 25, 165); */
+    }
+    .inactive-fade {
+      color: inherit;
+      background-color: inherit;
+      transition: background-color 20s, transition, color 2s;
+    }
+    .onlyoneline{
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mybox {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: start;
+    }
+  </style>
+</subs-view>

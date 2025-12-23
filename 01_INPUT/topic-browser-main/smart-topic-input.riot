@@ -1,0 +1,436 @@
+<smart-topic-input>
+  <div class="_container">
+    <div class="input-group input-group-sm mb-3">
+      <span class="input-group-text" id="basic-addon1"> Topic-Pattern</span>
+
+      <div class="form-control" style="padding: 0 0; border: 0">
+        <input
+          type="text"
+          id="pattern"
+          style="
+            width: 100%;
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+          "
+          value="{state.text}"
+          onkeydown="{onKeyDown}"
+          oninput="{onInput}"
+          onclick="{onClick}"
+          onselect="{onSelect}"
+          onfocusout="{onFocusOut}"
+          onfocus="{onFocus}"
+          type="text"
+          class="{ state.topicpatternError? 'form-control is-invalid' : 'form-control'}"
+        />
+
+        <div class="" style="height: 0">
+          <div class="spacer">{state.pretext}</div>
+
+          <topic-dropdown drop-down="{topicDropDown}"></topic-dropdown>
+          <!-- <topic-dropdown drop-down="{props.topicdropdown}"></topic-dropdown> -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    export default {
+      state: {
+        pretext: undefined,
+        seltext: "",
+        posttext: "",
+        text: "sw.sensor.",
+        delimiter: ".",
+        workIdx: 0,
+        enbaleAutoPath: false,
+        //topicDropDown : new TopicDropDown(),
+      },
+
+      onBeforeMount(props, state) {
+        this.topicDropDown = new TopicDropDown();
+      },
+
+      onMounted(props, state) {
+        this.state.textfieldRef = this.$("input");
+        this.topicDropDown.onClickCb = this.onTopicDropDownSelected;
+        this.topicDropDown.showAll = true;
+      },
+
+      onFocusOut() {
+        clearTimeout(this.focusOutTimer);
+        this.focusOutTimer = setTimeout(() => {
+          this.topicDropDown.show = false;
+          this.update();
+        }, 200);
+        //this.topicDropDown.show = false;
+        //this.update();
+      },
+
+      onFocus() {
+        clearTimeout(this.focusOutTimer);
+      },
+
+      extractPretext(workIdx, forceActualPretext = false) {
+        let changed = false;
+
+        const basetext = this.state.text.slice(0, workIdx);
+        let splitIdx = basetext.lastIndexOf(".");
+        let splitIdx2 = this.state.text.indexOf(".", workIdx);
+
+        if (forceActualPretext) {
+          splitIdx = basetext.length;
+        } else {
+          splitIdx = splitIdx < 0 ? 0 : splitIdx + 1;
+        }
+        splitIdx2 = splitIdx2 < 0 ? this.state.text.length : splitIdx2;
+
+        const newPretext = this.state.text.slice(0, splitIdx);
+
+        this.state.seltext = this.state.text.slice(splitIdx, splitIdx2);
+        this.topicDropDown.setFilter(this.state.seltext);
+        this.state.posttext = this.state.text.slice(splitIdx2);
+
+        if (newPretext !== this.state.pretext) {
+          //changed detection
+          this.topicDropDown.showAll = true;
+          changed = true;
+          this.topicDropDown.show = false;
+          this.queryTopicChildren(newPretext);
+        }
+
+        this.state.pretext = newPretext;
+
+        const end = this.state.text.indexOf(".#");
+        if (end >= 0 && workIdx > end) {
+          this.topicDropDown.setChildTopics([]);
+          changed = true;
+
+          this.state.text = this.state.text.slice(0, end + 2);
+          this.state.textfieldRef.value = this.state.text;
+        }
+
+        //fire oninput
+        if (this.props.oninput) {
+          console.log("ininoput fired");
+          this.props.oninput({ target: { value: this.state.text } });
+        }
+
+        console.log(
+          `workIdx=${workIdx}, splitIdx=${splitIdx}, splitIdx=${splitIdx2}, baseText=${basetext}, pretext=${this.state.pretext}, selText=${this.state.seltext}`
+        );
+
+        return changed;
+      },
+
+      onTopicChildrenResult(id, result) {
+        console.log("onchildrenResult", result);
+        this.topicDropDown.setChildTopics(result);
+
+        if (this.state.enbaleAutoPath) {
+          this.state.enbaleAutoPath = false;
+          if (
+            this.topicDropDown.topics.length > 0 &&
+            this.state.workIdx >= this.state.text.length &&
+            !this.state.text.endsWith(".")
+          ) {
+            this.state.text += ".";
+            this.state.workIdx++;
+            this.extractPretext(this.state.workIdx);
+          }
+        }
+
+        this.topicDropDown.showAll = true;
+        this.update();
+      },
+
+      queryTopicChildren(parentTopic) {
+        parentTopic = parentTopic.endsWith(".")
+          ? parentTopic.slice(0, -1)
+          : parentTopic;
+        console.log("queryyCildren for topic=" + parentTopic);
+        this.props.wsconn.sendRequest(
+          "getNextChildren",
+          parentTopic,
+          0,
+          this.onTopicChildrenResult
+        );
+      },
+
+      selectNext(setSelRange = true) {
+        this.state.workIdx = Math.max(
+          this.state.pretext.length + this.state.seltext.length + 1,
+          0
+        );
+        //this.setSelText(this.state.seltext, true);
+        this.extractPretext(
+          this.state.workIdx,
+          this.state.workIdx >= this.state.text.length
+        );
+        this.state.textfieldRef.setSelectionRange(
+          this.state.workIdx,
+          (this.state.pretext + this.state.seltext).length
+        );
+        this.update();
+      },
+
+      selectPrevious(setSelRange = true) {
+        this.state.workIdx = Math.max(this.state.pretext.length - 1, 0);
+        //this.setSelText(this.state.seltext, true);
+        this.extractPretext(this.state.workIdx);
+        this.state.textfieldRef.setSelectionRange(
+          this.state.pretext.length,
+          (this.state.pretext + this.state.seltext).length
+        );
+        this.update();
+      },
+
+      onTopicDropDownSelected(topic) {
+        if (topic) {
+          this.state.enbaleAutoPath = true;
+          this.state.workIdx = Math.min(
+            this.state.workIdx,
+            this.state.pretext.length + topic.length
+          );
+          let smartNext = true;
+          
+          //just hacked in
+          if(!this.state.posttext || this.state.posttext.length === 0){
+            //last element selected
+            smartNext = false;
+            this.state.workIdx = this.state.pretext.length + topic.length;
+          }
+          
+          this.setSelText(topic);
+          this.topicDropDown.show = false;
+          if(smartNext){
+            this.smartNext()
+          };
+          this.update();
+        
+        }
+      },
+
+      setSelText(topic, setSelRange = true) {
+        this.state.seltext = topic;
+        this.topicDropDown.setFilter(topic);
+        //this.state.workIdx = (this.state.pretext+this.state.seltext).length;
+        
+        
+        //replace whole selection
+        const tref = this.state.textfieldRef
+        const start = this.state.textfieldRef.selectionStart;
+        const end = this.state.textfieldRef.selectionEnd;
+        if (start != end) {
+          const substring = this.state.text.slice(start,end);
+          this.state.text = this.state.text.slice(0, start) + topic + this.state.text.slice(end);
+          
+        }
+        else {
+          this.state.text = this.state.pretext + this.state.seltext + this.state.posttext;
+        }
+
+        this.state.textfieldRef.value = this.state.text;
+          
+        if (setSelRange) {
+          this.state.textfieldRef.setSelectionRange(
+            this.state.workIdx,
+            this.state.workIdx
+          );
+        }
+        if(this.extractPretext(this.state.workIdx))
+        this.update();
+        this.state.textfieldRef.focus();
+      },
+
+      onKeyDown(e) {
+        const code = e.key;
+        if (code === "ArrowDown") {
+          this.topicDropDown.selectNext();
+          e.preventDefault();
+          //this.topicDropDown.showAll = true;
+          this.update();
+          //this.state.dropDownRef.focus();
+        } else if (code === "ArrowUp") {
+          this.topicDropDown.selectPrevious();
+          e.preventDefault();
+          this.update();
+        } else if (code === "ArrowLeft") {
+          const isActualSelection =
+            this.state.textfieldRef.selectionStart !=
+            this.state.textfieldRef.selectionEnd;
+          if (!isActualSelection) {
+            // ignore event if field has active selection
+            const actualold = this.state.textfieldRef.selectionStart;
+            this.state.workIdx = actualold > 0 ? actualold - 1 : 0;
+            console.log(
+              `<-- widx=${this.state.workIdx}, actualold=${actualold}`
+            );
+            if (this.extractPretext(this.state.workIdx)) {
+              this.update();
+            }
+          }
+        } else if (code === "ArrowRight") {
+          const isActualSelection =
+            this.state.textfieldRef.selectionStart !=
+            this.state.textfieldRef.selectionEnd;
+          if (!isActualSelection) {
+            // ignore event if field has active selection
+            const actualold = this.state.textfieldRef.selectionStart;
+            this.state.workIdx =
+              actualold <= this.state.text.length
+                ? actualold + 1
+                : this.state.text.length - 1;
+            console.log(
+              `--> widx=${this.state.workIdx}, actualold=${actualold}`
+            );
+            if (this.extractPretext(this.state.workIdx)) {
+              this.update();
+            }
+          }
+        } else if (code === "Enter") {
+
+          e.preventDefault();
+          this.state.enbaleAutoPath = true;
+          const topic = this.topicDropDown.getSelectedTopic();
+          this.state.workIdx = Math.min(
+            this.state.workIdx,
+            this.state.pretext.length + topic?.length - 1
+          );
+          this.topicDropDown.show = false;
+          this.setSelText(topic);
+          this.smartNext();
+        
+
+        } else if (code === "Tab") {
+          if (this.topicDropDown.selIdx >= 0) {
+            //focus is on drop down
+            this.state.enbaleAutoPath = true;
+            e.preventDefault();
+            const seltext = this.topicDropDown.getSelectedTopic();
+            this.state.workIdx = (this.state.pretext + seltext).length;
+            this.setSelText(seltext, true);
+            //this.smartNext();
+            this.selectNext();
+          } else {
+            e.preventDefault();
+            const directMatch = this.topicDropDown.getSelectedTopic();
+            if (directMatch && directMatch != this.state.seltext) {
+              this.setSelText(directMatch, true);
+            }
+            //this.state.workIdx = (this.state.pretext+this.state.seltext).length+1;
+            this.selectNext();
+          }
+        } else if (code === "Escape") {
+          this.topicDropDown.selIdx = -1;
+          this.topicDropDown.show = false;
+          this.update();
+        }
+        // else if(code === 'Delete' || code === 'Backspace'){
+        //   this.state.workIdx = this.state.textfieldRef.selectionStart;
+        //   if(this.extractPretext(this.state.workIdx)){
+        //     this.update();
+        //   }
+        // }
+      },
+
+      smartNext(setSelectionRange = true) {
+        if(this.state.posttext.length <= 1){
+          this.selectNext(setSelectionRange);
+        }else{
+          this.revalidateTopic(0);
+          if(setSelectionRange){
+            const begin = this.state.pretext.length;
+            const end = begin + this.state.seltext.length;
+            this.state.textfieldRef.setSelectionRange(begin,end);
+          }
+        };
+      },
+
+      revalidateTopic(startlevel){
+
+        let topicpath = this.state.text;
+        console.log(">>>> revalidateTopic=",topicpath);
+
+        if(topicpath != null && topicpath != ''){
+      
+          this.props.wsconn.sendRequest(
+            "validateTopicPath",
+            topicpath,
+            0,
+            (id, result) => {
+              console.log("<<<<< revalidateTopic =",result);
+              if(this.state.text != result){
+                this.state.workIdx = result.length+1;
+                this.extractPretext(this.state.workIdx,  this.state.workIdx >= this.state.text.length);
+                this.state.textfieldRef.setSelectionRange(result.length+1, this.state.text.length);
+              }
+            }
+          );
+        }
+
+      },
+
+      onClick(e) {
+        const el = e.target;
+        let text = el.value;
+        this.state.workIdx = el.selectionStart;
+        this.topicDropDown.showAll = true;
+        if (this.extractPretext(this.state.workIdx)) {
+        }
+        this.update();
+      },
+
+      onSelect() {
+        console.log(">>>>>>>>>>>> onSelect textfield)");
+      },
+
+      onInput(e) {
+        const el = e.target;
+        let text = el.value;
+        this.state.workIdx = el.selectionStart;
+        this.state.text = text;
+        console.log(">>>>>>>>>>>> onInput textfield)");
+        if (this.extractPretext(this.state.workIdx)) {
+          this.update();
+        }
+        //this.topicDropDown.showAll = false;
+        this.update();
+      },
+    };
+  </script>
+  <style>
+    .span-container {
+      display: inline;
+      /* position: relative; */
+      max-height: 0px;
+      left: -4px;
+    }
+
+    .span-container-hl {
+      left: -4px;
+    }
+
+    #mdrop .dropdown-item {
+      padding: 0px;
+      padding-left: 2px;
+    }
+
+    .spacer {
+      padding: 0px;
+      padding-left: 14px;
+      position: relative;
+      display: inline;
+      visibility: hidden;
+      height: 0px;
+      _border: 1px solid red;
+      _white-space: pre;
+      _vertical-align: bottom;
+    }
+
+    .mdd {
+      overflow: auto;
+      display: inline;
+      border: 1px solid #ccc;
+    }
+  </style>
+</smart-topic-input>

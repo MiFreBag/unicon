@@ -1,0 +1,33 @@
+
+syntax = "proto3";
+
+package core.service.featurecontrolV1;
+
+import "core/cpd/topicrpc.proto";
+
+
+
+service FeatureControl {
+    rpc setFeature(SetFeatureReq) returns (core.cpd.topicrpc.TopicRpcResp);
+}
+
+message SetFeatureReq {
+    string name = 1;
+    bool enable = 2;
+}
+
+//published messages from service
+//-------------------------------
+
+message Features {
+    repeated string names = 1;
+}
+
+message States {
+    message State {
+        string name = 1;
+        bool enable = 2;
+    } 
+    repeated State states = 1;
+}
+

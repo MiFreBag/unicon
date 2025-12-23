@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package core.cpda_topicrpcV1;
+
+
+//gRPC CPD_Adapter Service for generic rpc to Topics-RPCs
+service CpdaRpc {
+    //rpc rpcSet(RpcReq) returns (google.protobuf.Empty) {}       //not used instead use cpd.publish(TopicData)
+    rpc rpc(RpcReq) returns (RpcResp) {}                          // default rpc with result response
+
+    rpc rpcDualStage(RpcReq) returns (stream RpcRespDs) {}          // rpc with Ack & result phase
+                                                                  // Service ends stream after sending Results
+}
+
+
+message RpcReq {
+    string topic = 1; //Topic name eg. core.services.tom.log.rpc.setLevel
+    string jsondata = 2;  // payload eg. { "logname" : "DBStorage", "level" : "info"}1
+    
+}
+
+// message RpcReqDualStage {
+//     string topic = 1; //Topic name eg. core.services.tom.log.rpc.setLevel
+//     string jsondata = 2;  // payload eg. { "logname" : "DBStorage", "level" : "info"}1
+//     uint32 timeout_ackn_ms = 3;
+//     uint32 timeout_data_ms = 4;
+    
+// }
+
+message RpcResp {
+    string jsondata = 1;
+}
+
+
+message RpcRespDs {
+    bool ackn = 1;
+    string jsondata = 2;
+}

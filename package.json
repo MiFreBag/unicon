@@ -2,21 +2,23 @@
   "name": "unicon-workspace",
   "private": true,
   "version": "1.0.0",
-  "type": "module",
   "workspaces": [
     "client",
-    "server"
+    "server",
+    "desktop"
   ],
   "scripts": {
     "tag": "standard-version && npm run update-remote && git push --follow-tags origin main && npm publish",
     "dev:all": "concurrently -n unicon-client,unicon-server -c green,blue \"npm:unicon-client\" \"npm:unicon-server\"",
+    "dev:desktop": "concurrently -n client,server,electron -c green,blue,magenta \"npm:unicon-client\" \"npm:unicon-server\" \"npm --prefix desktop run dev:with-server\"",
     "server": "node server/index.js",
     "unicon-client": "npm --prefix client run dev",
     "unicon-server": "npm --prefix server run dev",
+    "desktop:pack": "npm --prefix client run build && node desktop/scripts/copy-dist.js && npm --prefix desktop run build",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
-    "lint:fix": "eslint . --fix",
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext js,jsx --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "docker:build": "docker build -t universal-frontend .",
     "docker:run": "docker run -p 80:80 universal-frontend"

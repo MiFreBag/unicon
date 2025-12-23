@@ -1,0 +1,305 @@
+<topic-browser>
+  
+  <div class="container mb-4">
+  <h4>Browse Topic</h4>
+
+
+  <div class="row g-3">
+    <div class="col-sm-7 {props.mode == 0 ? '' : 'hidden'}">
+      <topicbrowser-filter-simple  
+        onUpdateQuery={onUpdateQuery} topicdropdown={props.topicdropdown} wsconn={props.wsconn}>
+      </topicbrowser-filter-simple>
+    </div>
+    <div class="col-sm-7 {props.mode == 1 ? '' : 'hidden'}">
+      <topicbrowser-filter
+        onUpdateQuery={onUpdateQuery} topicdropdown={props.topicdropdown} wsconn={props.wsconn}>
+      </topicbrowser-filter>
+    </div>
+    <div class="col-sm">
+      <button type="button" class="btn btn-success" disabled={!this.anyExactMatch}
+        onclick="{onSubscribe}" >Subscribe</button>
+    </div>
+
+    <!-- <div class="col-sm">
+      <label for="limit">query limit</label>
+      <input id="limit" class="form-control form-control-sm" type="number" 
+        onchange="{onLimitChanged}" placeholder={state.limit}>
+    </div> -->
+
+    <div class="col-sm">
+      <div> {state.testsubs_topic}</div>
+      <div> {state.testsubs_data}</div>
+    </div>
+  </div>
+  <div class="container ">
+    <h4>Browse result:
+      <span class="h6"> {state.items.length} results&nbsp; </span>
+      <span class="h6" style="color:orangered; visibility:{(state.items.length > 0 & state.limit>0 & state.items.length === state.limit)? 'visible' : 'hidden'};">
+         (limited to {state.limit}) </span>
+  
+    </h4>
+
+
+    <div class="row" style="height: 420px">
+      <ul class="col-8 list-group wrapper ">
+        <!-- <li class="{item.exactMatch? 'list-group-item mb-0 exactmatch' : 'list-group-item mb-0' }" each={ item in state.items }>  -->
+        <li class="{item.exactMatch? 'list-group-item mb-0 exactmatch' : 'list-group-item mb-0' }" each="{ item in state.items }" 
+          onclick="{() => onTopicClicked(item)}"> 
+          <!-- <a class="{item.exactMatch? 'exactmatch' : '' }"> -->
+          <span class="fw-bold">{item.name}</span> {item.data}
+          
+      </li>
+      </ul>
+  
+      
+      <div class="col-4 ms-auto" style="margin-top: 0px;">
+        <sensor-display topic={state.selTopic} data={state.selTopicData}> </sensor-display>
+      </div>
+      
+      
+    </div>
+
+    <nav class="col-auto ms-auto" aria-label="Page navigation example" 
+          style="visibility:{state.pagi.pageIdx > 0 || state.pagi.currNumLines > state.limit? 'visible' : 'hidden'}">
+      <ul class="pagination">
+        <li class="{state.pagi.pageIdx > 0? 'page-item' : 'page-item disabled'}" >
+          <a  class="page-link" onclick={queryPreviousPage} href="#">Previous
+          </a>
+        </li>
+        <li class="page-item"><a class="page-link" href="#"> {state.pagi.pageIdx+1}</a></li>
+        <li class="{state.pagi.currNumLines > state.limit? 'page-item' : 'page-item disabled'}" >
+          <a class="page-link"
+            onclick={queryNextPage} href="#">Next
+          </a>
+        </li>
+      </ul>
+    </nav>
+    
+
+
+  </div>
+
+  
+</div>
+
+  <script>
+
+    export default {
+        state: {
+          limit : 10,
+          withData : false,
+          items: [],
+          testsubs_topic : "",
+          testsub_data : "",
+          selTopic :'',
+          selTopicData : null,
+          currentSubsId : null,
+          pagi : { 
+            pageIdx : 0,
+            currNumLines : 0,
+            pageEndTopics : [],
+          }
+        },
+        filter : {
+          topicpattern : '',
+          topictext : '',
+          payload : '',
+          limit : 100,
+        },
+        // this.wss = this.props.wss;
+        // console.log(this.wss);
+
+        onMounted(props, state){
+            console.log(props);
+            this.message = "just started up"
+            this.update();
+        },
+
+        mergeTopics(topics, prefix, delimiter){
+          const startOffset = prefix.length;
+          //TODO
+          return topics;
+
+
+        },
+
+
+        onSubscribe(){
+          let filter = {...this.filter};
+          filter.topicpattern = this.exactTopicPattern;
+          filter.topictext = this.exactTopicText;
+          this.props.subs.addSubscription( filter, {flatSubscribe:false});
+          //this.props.wsconn.sendRequest('subscribe', {filter: this.filter}, 0, this.onTopicData);
+        },
+        onLimitChanged(e){
+          let limit = parseInt(e.target_showAll);
+          this.state.limit = limit > 0 ? limit : undefined;
+        },
+
+        onUpdateQuery(filter, exactTopicPattern){
+            this.filter.topicpattern = filter.browse_topicpattern;
+            this.filter.topictext = filter.browse_topictext;
+            this.filter.payload = filter.payload;
+            this.exactTopicPattern = filter.topicpattern;
+            this.exactTopicText = filter.topictext;
+            this.filter.limit = this.state.limit+1;
+            this.filter.startTopic = '';
+            this.filter.fuzzy = filter.fuzzy;
+            console.log(`queryUpdate filter=${JSON.stringify(this.filter)}`);
+            if(this.state.withData){
+              this.props.wsconn.sendRequest('browsedata', {filter: this.filter}, 0, this.onBrowseResult);
+            }
+            else{
+              this.props.wsconn.sendRequest('browse', {filter: this.filter}, 0, this.onBrowseResult);
+            }
+
+            //update pagination
+            this.state.pagi.pageIdx = 0;
+            this.state.pagi.pageEndTopics = [];
+
+            console.log("filter changed;")
+        },
+
+        queryNextPage(){
+            this.filter.startTopic  = this.state.pagi.pageEndTopics[this.state.pagi.pageIdx];
+            console.log(`onQueryNextPage filter=${JSON.stringify(this.filter)}`);
+            if(this.state.withData){
+              this.props.wsconn.sendRequest('browsedata', {filter: this.filter}, 0, this.onBrowseResult);
+            }
+            else{
+              this.props.wsconn.sendRequest('browse', {filter: this.filter}, 0, this.onBrowseResult);
+            }
+
+            //update pagination
+            this.state.pagi.pageIdx++;
+        },
+
+        queryPreviousPage(){
+          if(this.state.pagi.pageIdx > 1){
+              this.filter.startTopic  = this.state.pagi.pageEndTopics[this.state.pagi.pageIdx-2];
+          }
+          else{
+            this.filter.startTopic = ''; 
+          }
+            console.log(`onQueryPreviousPage filter=${JSON.stringify(this.filter)}`);
+            if(this.state.withData){
+              this.props.wsconn.sendRequest('browsedata', {filter: this.filter}, 0, this.onBrowseResult);
+            }
+            else{
+              this.props.wsconn.sendRequest('browse', {filter: this.filter}, 0, this.onBrowseResult);
+            }
+
+            //update pagination
+            this.state.pagi.pageIdx--;
+        },
+
+        onTopicData(result){
+
+          let item = this.state.items.find(el => el.name === result.topic);
+          if(item){
+            item.data = result.data;
+
+            this.state.testsubs_topic = result.topic;
+            this.state.testsubs_data = result.data;
+            this.update();
+          }
+        },
+
+        onBrowseResult(id, result){
+
+            const delimiter = '.';
+
+            console.log("onBrowseResult called", result);
+            console.log("exactTopicPattern=", this.exactTopicPattern);
+            
+            //this.browseResult = result;
+            this.anyExactMatch = false;
+            let items = [];
+            if(this.state.withData){
+              Object.entries(result).forEach(([name, data]) => {
+                items.push({name:name, data:data});
+              });
+            }
+            else{
+              items = this.mergeTopics(items, this.filter.topictext, delimiter);
+              items = result.map( topic => ({name: topic}));
+            }
+
+            items.forEach( el => {
+              el.exactMatch = this.exactTopicPattern? mqttMatch(this.exactTopicPattern, el.name, delimiter) : false;
+              this.anyExactMatch |= el.exactMatch;
+            })
+
+            //update pagination
+            this.state.pagi.currNumLines = items.length;
+            this.state.items = items;
+            
+            if(items.length > this.state.limit){
+              this.state.pagi.pageEndTopics[this.state.pagi.pageIdx] = items[items.length-1].name;
+              this.state.items = items.slice(0,-1);
+            }
+            
+            //this.state.items = items.sort((a,b) =>  a.name.length - b.name.length ||  a.name.localeCompare(b.name));
+            //this.state.items = result.sort().sort((a,b) => a.length - b.length);;
+            
+            this.update();
+        },
+
+        onTopicClicked(item){
+
+          //let topic = item.name.split('.$')[0];
+          let topic = item.name.split(/\.\$$/)[0];
+
+          //return;
+          if(topic != this.state.selTopic){
+            this.state.selTopic = topic;  
+            if(this.state.currentSubsId != null){ //unsubscribe previous
+              this.props.subs.removeSubscription(this.state.currentSubsId);
+              this.state.currentSubsId = null;
+
+            }
+            this.state.currentSubsId = this.props.subs.addSubscription( {topicpattern : this.state.selTopic}, null, this.onSelTopicData);
+            console.log("hello there", item);
+          }
+          
+        },
+
+        onSelTopicData(data){
+          //this.update({selTopicData: this.props.subs.getTopicData(this.state.selTopic)});
+          this.update({selTopicData: data});
+
+        },
+  
+}
+  </script>
+  <style>
+    .myButton {
+      background-color:#44c767;
+    }
+    .myButton:hover {
+      background-color:#5cbf2a;
+    }
+    .myButton:active:enabled {
+      position:relative;
+      top:1px;
+      cursor: pointer;
+    }
+    .fullheigt {
+      display: flex;
+      height: 80vh;
+      flex-direction : column;
+      
+    }
+    .wrapper {
+      max-height : 100%;
+      height: 70vh;
+      overflow: auto;
+    }
+    .exactmatch {
+      background-color : HoneyDew;
+      color : darkgreen;
+    }
+
+
+  </style>
+</topic-browser>

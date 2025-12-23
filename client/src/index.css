@@ -1,16 +1,46 @@
 /* src/index.css */
+@import './theme/brand.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* Custom styles */
 @layer base {
+  /* Self-hosted Montserrat scaffold (files to be added under /public/fonts) */
+  @font-face {
+    font-family: 'Montserrat';
+    src: url('/fonts/Montserrat-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Montserrat';
+    src: url('/fonts/Montserrat-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Montserrat';
+    src: url('/fonts/Montserrat-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Montserrat';
+    src: url('/fonts/Montserrat-Bold.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: theme('fontFamily.sans');
   }
   
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-white text-[color:var(--text-main,#1D1D1B)];
   }
 }
 

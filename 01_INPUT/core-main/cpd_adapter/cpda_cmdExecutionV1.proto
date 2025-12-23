@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package core.cpda_cmdExecutionV1;
+
+
+//gRPC CPD_Adapter Service for initiated command execution via cpd
+service CpdaCmdExecution {
+    
+    //pc setValueCmd(SetValueCmdReq) returns (RpcResp) {}  // default rpc with result response (efb)
+    rpc cmdReq(CmdReq) returns (RpcResp) {}              // a generic command request. may be queued or executed directly
+    rpc releaseCmdReq(ReleaseCmdReq) returns (RpcResp) {}  //a requested command can be deactivated
+}
+
+enum ResutCodeEnum {
+    OK = 0;
+    WARN = 1;
+    ERR = 2;
+}
+
+enum CmdReqModeEnum {
+    ADHOC_LOCKP = 0;// Default: gets executed if no higher prio cmdSource is active. The cmdReq is not put in the PrioTable.
+                    // following cmdReq from other sources must have at least same cmdSource Prio as this cmdReq prio to be activated
+    ADHOC = 1;      // gets executed if no higher prio cmdSource is active. The cmdReq is not put in the PrioTable.
+                    // if this cmdReq gets active, it is internally store with an active prio=0 (lowest), any new cmdReq can overwrite this active cmd.
+    PERMANENT = 2;  // The cmdReq is permanentaly stored in the PrioTable. gets executed when no higher prio cmdSource is active or in the prioTable.
+    RELEASE = 3;    // Releases a Permanent cmd fom the prioTableTable. if a cmd is provided (cmdReq-parameter != '') 
+                    //      and no other Entry in PrioTable exists, the cmd get executed as prio 0 cmd.
+}
+
+message RpcErrorInfo {
+    uint32 code = 1;              //rpc call type specific error code
+    string message = 2;
+}
+
+message RpcResp {
+    ResutCodeEnum resultCode = 1;
+    string jsondata = 2; //optional return value as json string// can be empty. on Error gRPC returns one of its error status codes
+    RpcErrorInfo errorInfo = 3;  //only used if status WARN/ERR
+}
+
+
+message CmdReq {
+    string cmdProxy = 1;        // e.g. "sw.services.cmdManager.1"  -> ${cmdProxy}.api.cmdExecutionV1.rpc.CmdReq
+    string target = 2;          // full datapointname for setValueCMD e.g. "sw.somewhere.myDataPoint"
+    string param = 3;           // json string, correspondence to the param defined in type & Method(JSON Schema)
+                                // for class=setValueCmd, param is the value in string form "12", "12.2" 
+    string cmdSource = 4;       // name of the command source e.g. "jaut", "central", "central-admin", "local".. (prj. specific)
+                                // in case there are multiple instances the cmdSource can be provided by "<cmdSource>.<instID>"
+    int32 reqID = 5;            // correlation id from the client.
+    CmdReqModeEnum mode = 6;         // cmd gets stored in the prioTable of the cmdManagaer and is activated if no hiher prio in the table
+    int32 timeout_ms = 7;         // return error after timeout, timeout for first ackn, default 1 sec.
+    optional string optionalAuditData = 8;  // optional additional auditData as json string object (key/value)))
+    optional string optionalRefTopics = 9;  // optional efb topics as json string object (key/value))) e.g. {"efb"="sw.mydata.efb", "status"="swmydata.status" 
+}
+
+
+
+message ReleaseCmdReq {
+    string cmdProxy = 1;        // e.g. "sw.services.cmdManager.1"  -> ${cmdProxy}.api.cmdExecutionV1.rpc.CmdReq
+    string target = 2;          // same as original cmdReq                        
+    string cmdSource = 3;      // same as original cmdReq
+    string optionalAuditData = 4;  // optional additional auditData as json string object (key/value)))
+}
+
+
+
+
+
+
+

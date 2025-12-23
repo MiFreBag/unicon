@@ -1,0 +1,145 @@
+
+syntax = "proto3";
+
+option csharp_namespace = "Bergauer.Libs.CpdClient";
+
+package core.cpd_adapter;
+
+
+import "google/protobuf/empty.proto";
+
+// Interface exported by the server.
+service cpd {
+  
+  rpc ping(PingMessage)returns (PingMessage) {}
+  rpc simpleSubscribe(SimpleSubscribeRequest) returns (stream TopicChange) {}
+  rpc subscribe(SubscribeRequest) returns (stream TopicChange) {}
+  rpc unsubscribe(UnsubscribeRequest) returns (google.protobuf.Empty) {}
+  rpc simpleGetLatestData(SimpleGetLatestDataRequest) returns (GetLatestDataResponse) {}
+  rpc getLatestData(GetLatestDataRequest) returns (GetLatestDataResponse) {}
+
+  rpc publish(TopicData) returns (google.protobuf.Empty) {}     //actually publishFullToFull   //sw.sensor1 -> sw.sensor1
+  rpc publishUpdate(TopicData) returns (google.protobuf.Empty) {} //(merges Part to oldData and sends standard topic or delta topic)
+  rpc deltaPublish(TopicData) returns (google.protobuf.Empty) {}     // send dat via delta topic (changes only)
+  
+  rpc publishDeltaToDelta(TopicData) returns (google.protobuf.Empty) {}   //use publishUpdate if performance is not an issue, sw.sensor1 {newdata:2}-> sw.sensor1.$ {newdata:2}
+  rpc publishDeltaToFull(TopicData) returns (google.protobuf.Empty) {}   //sw.sensor1 {newdata:2} -> sw.sensor1 {unit:mV, newdata:2}
+  rpc publishFullToDelta(TopicData) returns (google.protobuf.Empty) {} 
+  rpc sendTopic(TopicData) returns (google.protobuf.Empty) {}  // just send topic, no storing/management in cpd-adapter
+
+  rpc browseTopicNames(BrowseTopicNamesReq) returns (BrowseTopicNamesResp) {} //topic name bwosing with pagination
+
+}
+
+
+message PingMessage {
+    string msg = 1;
+}
+
+
+message SubscribeRequest {
+    uint32 id = 1;
+    FilterDef filterDef = 2;
+    SubsConfig subsConfig = 3;
+}
+
+
+message SimpleSubscribeRequest {
+    uint32 id = 1;
+    repeated string topicpattern = 2;
+}
+
+message SimpleGetLatestDataRequest {
+    repeated string topicpattern = 1;
+}
+
+message GetLatestDataRequest {
+    FilterDef filterDef = 1;
+}
+
+message GetLatestDataResponse {
+    repeated TopicData topicData = 1;
+}
+
+message UnsubscribeRequest {
+    uint32 id = 1;
+}
+
+
+message TopicData {
+    string topic = 1;
+    //google.protobuf.Struct data = 2;
+    string data = 2;
+}
+
+
+message TopicChange {
+    uint32 id = 1; //subsId
+    repeated TopicData topicData = 2;
+}
+
+
+
+message FilterDef {
+    enum Mode {
+        DEFAULT = 0;    //only direct Topicnames are matches
+        MD = 1;         //Metadata Topics are automatically merged within cpd_adapter.
+        DELTA = 2;      //DELTA Topics are automatically merged within cpd_adapter
+    }
+    Mode mode = 1;
+    bool caseSensitive = 2;
+    repeated string namespaces = 3;     // DEPRECATED! dont' use it anymore (set default)
+    repeated string topicpattern = 4;   //e.g ["sw.sensor.#"] or ["sw.sensor.test1", "sw.sensor.test2"]
+    repeated string topictext = 5;      //optional, typically not used on Subscription
+    repeated string payload = 6;        //optional
+    uint32 limit = 7; //optional
+
+}
+
+message SubsConfig {
+
+    // typically FALSE, storeALL=true forces storage of all topicdata within cpd_adapter. 
+    // If storeALL=false cpd_adapter only stores the data if really needed (e.g Delta-Data, AGGR-Data)
+    // storAll=true might be usefull if you use the cpd_adapter as a storage to adhoc query the most recent data of a topic
+    // please consider performance and resource usage if storAll=true.
+    bool storeAll = 1; 
+
+    // TRUE: (simple mode) only the exact topics currently available (as seen by TOM) are subscribed, 
+    // FALSE: future topics that matches the FilterDef will also be received
+    // please consider performance and resource usage if flatSubscribe=false.
+    bool flatSubscribe = 2; 
+    
+    // TRUE: initially, the latest data from TOM will be sent to the client
+    // FALSE: only actual event data on CPD will be sent to the client
+    bool sendInitialData = 3;
+
+    AggrMode aggrMode = 4;
+    enum AggrMode {
+        
+        //standard mode, any subscribed Topic is individually send to client if data changed.
+        ON_ANY = 0;
+        
+        //all subscribed topics are sent as a group. This mode waits until all topic are newely received since last send 
+        //or aggrTime is expired. aggrTime basically defines a time window in which all associated topics should have updated theier data.
+        ON_CAPTURETIME = 1;
+        
+        //on receive of aggrTriggerTopic all subscribed topics will be send as a group to the client
+        ON_CAPTURETRIGGER = 2;
+    };
+
+    uint32 aggrTime = 5; //Time in ms, onMode CaptureTime this is captureTime
+    string aggrTriggerTopic = 6;
+}
+
+
+message BrowseTopicNamesReq {
+    string topicPattern = 1;    //may include wildcard # or * and payload filter e.g. "_:_val>3"
+    int32 limit = 2;    
+    string beginTopicName = 3;  //start search on this fullnamed topic. udes for pagination in combination with limit
+                                // default='', efficiently query from beginning
+    bool reverse = 4;
+}
+
+message BrowseTopicNamesResp {
+    repeated string topicNames = 1;
+}

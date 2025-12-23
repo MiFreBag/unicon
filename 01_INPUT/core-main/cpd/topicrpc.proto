@@ -1,0 +1,32 @@
+
+syntax = "proto3";
+
+package core.cpd.topicrpc;
+
+
+//Generic RPC Message on Topic (only messages for topic payload)
+
+message TopicRpcReqTgm {
+    //string method = notused
+    uint32 id = 1;  //correleation id for sender
+    uint64 ts = 2;
+    string req = 3;     //rpc specific proto payload as joson string
+    string respTopic = 4; // Topic to response to e.g core.service.cpdAdapter1.resp
+}
+
+message TopicRpcRespTgm {
+    uint32 id = 1;  //correleation id for sender
+    uint64 ts = 2;   //send timestamp
+    TopicRpcResp resp = 3;
+    TopicRpcError error = 4;
+}
+
+message TopicRpcResp {
+    bool ackn = 1;     // might better be ackn, done, error, warn tbd
+    string data = 2; //json string
+}
+
+message TopicRpcError {
+    uint32 code = 1;
+    string message = 2;
+}

@@ -4,15 +4,15 @@ import {
   Plus, 
   Trash2, 
   Copy, 
-  Download,
   Eye,
   EyeOff,
   RefreshCw,
   Globe,
-  Code,
-  Clock,
-  AlertCircle
+  Clock
 } from 'lucide-react';
+import Button from '../ui/Button.jsx';
+import Input from '../ui/Input.jsx';
+import Select from '../ui/Select.jsx';
 
 const RestWorkspace = ({ connection }) => {
   const [activeTab, setActiveTab] = useState('request');
@@ -166,61 +166,34 @@ const RestWorkspace = ({ connection }) => {
         <div className="flex-1 space-y-6">
           {/* Request Line */}
           <div className="flex space-x-3">
-            <select
-              value={request.method}
-              onChange={(e) => setRequest(prev => ({ ...prev, method: e.target.value }))}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-32"
-            >
-              {httpMethods.map(method => (
-                <option key={method} value={method}>{method}</option>
-              ))}
-            </select>
-            <input
-              type="text"
+            <Select value={request.method} onChange={(e)=>setRequest(prev=>({...prev, method: e.target.value}))} className="w-32" aria-label="HTTP Method">
+              {httpMethods.map(m => (<option key={m} value={m}>{m}</option>))}
+            </Select>
+            <Input
               value={request.endpoint}
-              onChange={(e) => setRequest(prev => ({ ...prev, endpoint: e.target.value }))}
+              onChange={(e)=>setRequest(prev=>({...prev, endpoint: e.target.value}))}
               placeholder="/api/endpoint"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Endpoint"
+              className="flex-1"
             />
-            <button
-              onClick={sendRequest}
-              disabled={isLoading || connection?.status !== 'connected'}
-              className="inline-flex items-center px-6 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? <RefreshCw size={16} className="mr-2 animate-spin" /> : <Send size={16} className="mr-2" />}
+            <Button onClick={sendRequest} disabled={isLoading || connection?.status !== 'connected'} leftEl={isLoading ? <RefreshCw size={16} className="mr-2 animate-spin"/> : <Send size={16} className="mr-2"/>}>
               Send
-            </button>
+            </Button>
           </div>
 
           {/* Headers Section */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-medium text-gray-700">Headers</h4>
-              <button
-                onClick={addCustomHeader}
-                className="inline-flex items-center px-3 py-1 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <Plus size={14} className="mr-1" />
+              <Button variant="secondary" size="sm" onClick={addCustomHeader} leftEl={<Plus size={14} className="mr-1"/>}>
                 Add Header
-              </button>
+              </Button>
             </div>
             <div className="space-y-2">
               {customHeaders.map((header, index) => (
                 <div key={index} className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={header.key}
-                    onChange={(e) => updateCustomHeader(index, 'key', e.target.value)}
-                    placeholder="Header Name"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                  <input
-                    type="text"
-                    value={header.value}
-                    onChange={(e) => updateCustomHeader(index, 'value', e.target.value)}
-                    placeholder="Header Value"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
+                  <Input value={header.key} onChange={(e)=>updateCustomHeader(index,'key',e.target.value)} placeholder="Header Name" className="flex-1" />
+                  <Input value={header.value} onChange={(e)=>updateCustomHeader(index,'value',e.target.value)} placeholder="Header Value" className="flex-1" />
                   <button
                     onClick={() => removeCustomHeader(index)}
                     className="p-2 text-gray-400 hover:text-red-500"
@@ -238,10 +211,10 @@ const RestWorkspace = ({ connection }) => {
               <h4 className="text-sm font-medium text-gray-700">Request Body</h4>
               <textarea
                 value={request.body}
-                onChange={(e) => setRequest(prev => ({ ...prev, body: e.target.value }))}
+                onChange={(e)=>setRequest(prev=>({...prev, body: e.target.value}))}
                 placeholder='{"key": "value"}'
                 rows={8}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-swarco-grey-400 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600"
               />
               <div className="text-xs text-gray-500">
                 JSON format expected. Will be parsed automatically.

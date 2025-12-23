@@ -1,0 +1,59 @@
+{
+  "name": "unicon-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.js",
+  "description": "Electron desktop shell for Unicon (wraps client and server)",
+  "scripts": {
+    "dev": "wait-on tcp:5174 && electron .",
+    "dev:with-server": "wait-on tcp:5174 tcp:3001 && electron .",
+    "start": "electron .",
+    "build": "electron-builder -w"
+  },
+  "dependencies": {
+    "electron-is-dev": "^3.0.1",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "ws": "^8.14.2",
+    "uuid": "^9.0.1",
+    "axios": "^1.6.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.example.unicon",
+    "productName": "Unicon",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "../server/**",
+      "!../server/node_modules/**",
+      "../client/dist/**",
+      "!../client/node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../server",
+        "to": "app/server",
+        "filter": ["**/*", "!node_modules/**"]
+      },
+      {
+        "from": "../client/dist",
+        "to": "app/client-dist",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "Unicon-${version}-Setup.${ext}"
+    }
+  }
+}

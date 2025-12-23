@@ -1,0 +1,18 @@
+
+syntax = "proto3";
+
+package core.services.pingV1;
+
+import "core/cpd/topicrpc.proto";
+
+
+service Ping {
+    rpc ping(_PingReq) returns (core.cpd.topicrpc.TopicRpcResp);                   //with ackn status response
+    rpc pingDs(_PingReq) returns (stream core.cpd.topicrpc.TopicRpcResp);//with first ack followed by result tgm
+}
+
+message _PingReq {
+    string message = 1;
+}
+
+

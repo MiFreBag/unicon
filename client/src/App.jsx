@@ -1,12 +1,13 @@
 // src/App.jsx
-import ConnectionExperience from './components/ConnectionExperience'
+import AppProviders from './app/AppProviders.jsx'
+import AppShell from './app/AppShell.jsx'
 import './index.css'
 
 function App() {
   return (
-    <div className="App bg-gray-100 min-h-screen p-6">
-      <ConnectionExperience />
-    </div>
+    <AppProviders>
+      <AppShell />
+    </AppProviders>
   )
 }
 

@@ -1,0 +1,9 @@
+:root {
+  --brand-primary: #004b8d; /* placeholder for SWARCO primary */
+  --brand-accent: #00a1e0; /* placeholder accent */
+  --text-main: #1D1D1B;
+}
+
+.brand-bg {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-accent) 100%);
+}

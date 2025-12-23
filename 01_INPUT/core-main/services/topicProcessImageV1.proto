@@ -1,0 +1,44 @@
+
+syntax = "proto3";
+
+package core.service.topicProcessImageV1;
+
+import "core/cpd/topicrpc.proto";
+
+// CAUTION : work in progress 
+
+service client {
+    rpc getAllPublishedTopicData(getAllReq) returns (core.cpd.topicrpc.TopicRpcResp);
+}
+
+//param
+message getAllReq {
+    WhitelistFilter wlFilter = 1;
+    string streamRespTopic = 2; //defines where the data should be streamed to, (if private=true)
+    int32 batchSize = 3;    //0=infinit, resp. all at once
+    bool private = 4;       //ture=forces client to re-publish own topics 1:1. false=client publishes own topics over "streamRespTopic"
+}
+
+//response
+message TopicsListResp {
+    repeated TopicRecord TopicRecord = 1;
+}
+
+//structure
+message TopicRecord {
+    string t = 1; //topicname
+    bool isd = 2; //isDelta
+    string d = 3; //data
+
+}
+
+message WhitelistFilter {
+    repeated string whitelist = 1;
+    repeated string blacklist = 2;
+    repeated string forcedwhitelist = 3;
+}
+
+//published messages (data-topics) from service
+//-------------------------------
+
+// none so far

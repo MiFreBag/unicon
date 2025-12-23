@@ -1,0 +1,110 @@
+//import navbar from "./nav-bar.js";
+import observable from "riot-observable";
+
+<app>
+  <div>
+    <nav-bar
+      on-page-select="{onPageSelect}"
+      activepage="{state.showpage}"
+      pages="{state.pages}"
+    ></nav-bar>
+    <div 
+      class="{state.disconnected? 'disconnected' : 'hidden'}">
+        CPD-Adapter Disconnected
+    </div>
+    <div class="version"> v0.23.0 </div>
+    
+
+
+    <topic-browser
+      class="{state.showpage === 'topicbrowser'? 'container' : 'hidden'}"
+      wsconn="{props.wsconn}"
+      subs="{props.subs}"
+      topicdropdown={props.topicdropdown}
+      mode=0
+    ></topic-browser>
+
+     <topic-browser
+      class="{state.showpage === 'topicbrowser2'? 'container' : 'hidden'}"
+      wsconn="{props.wsconn}"
+      subs="{props.subs}"
+      topicdropdown={props.topicdropdown}
+      mode=1
+    ></topic-browser>
+
+    <subs-view
+      class="{state.showpage === 'subs'? 'container' : 'hidden'}"
+      subs="{props.subs}"
+      smartupdateClass="{props.smartupdateClass}"
+    >
+    </subs-view>
+
+    <!-- <smart-topic-input class="{state.showpage === 'test'? 'container' : 'hidden'}"></smart-topic-input> -->
+
+    <smart-topic-input class="{state.showpage === 'test2'? 'container' : 'hidden'}" wsconn={props.wsconn} 
+    oninput="{() => console.log('got it')}" topicdropdown={props.topicdropdown}>
+  </smart-topic-input>
+
+
+  </div>
+  <script>
+    export default {
+      state: {
+        showpage: "topicbrowser2",
+        //showpage: "test2",
+        pages: [
+          { name: "TopicBrowser", page: "topicbrowser2" },
+          { name: "TopicBrowser(simple)", page: "topicbrowser" },
+          { name: "Subscription", page: "subs" },
+          { name: "test", page: "test" },
+          { name: "test2", page: "test2" },
+        ],
+        disconnected: false,
+      },
+      // this.wss = this.props.wss;
+      // console.log(this.wss);
+
+      onMounted(props, state) {
+        console.log(props);
+        
+        this.props.wsconn.getEventBus().on("wsdisconnected", () => {
+          this.state.disconnected = true; 
+          console.log("evenbus event: wsdisconnected");
+          this.update()
+        })
+        this.props.wsconn.getEventBus().on("wsconnected", () => {
+          this.state.disconnected = false,
+          console.log("evenbus event: wsconnected");
+          this.update()
+         })
+        
+        this.message = "just started up";
+        this.update();
+        console.log(props, this.props);
+      },
+
+
+      onPageSelect(page) {
+        this.state.showpage = page;
+        console.log("page seletced", page);
+        this.update();
+      },
+    };
+  </script>
+
+  <style>
+    .hidden {
+      display: none;
+    }
+    .version {
+      color: lightgray;
+      padding-left: 15px;
+    }
+    .disconnected {
+      color: red;
+      text-align: center;
+      background-color: bisque;
+      font-weight: bolder;
+    }
+  </style>
+</app>

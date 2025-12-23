@@ -1,0 +1,25 @@
+
+syntax = "proto3";
+
+package core.services.logV1;
+
+import "core/cpd/topicrpc.proto";
+
+
+service Log {
+    rpc setLevel(SetLevelReq) returns (core.cpd.topicrpc.TopicRpcResp);                   //with ackn status response
+    rpc setLevelDs(SetLevelReq) returns (stream core.cpd.topicrpc.TopicRpcResp);//with first ack followed by result tgm
+}
+
+message SetLevelReq {
+    string logname = 1;
+    string level = 2;
+}
+
+
+// exposed variable as topic endpoints
+
+message Lognames {
+    repeated string names = 1;
+}
+

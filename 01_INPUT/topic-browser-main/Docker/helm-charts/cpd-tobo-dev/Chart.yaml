@@ -1,0 +1,8 @@
+name: cpd-tobo-dev
+description: Bergauer CPD TOBO DEV
+version: 0.23.6-0
+appversion: 0.23.6-0
+apiVersion: v1
+keywords:
+sources:
+home:

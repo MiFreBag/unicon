@@ -1,0 +1,68 @@
+
+syntax = "proto3";
+
+package core.services.vvaV0;
+
+
+service VVA {
+    rpc ping(PingMessage)returns (PingMessage) {}               //for testing
+    rpc srmStream(stream SRM) returns (stream SSM) {}           //vva service request message stream
+}
+
+message Empty {
+}
+
+message PingMessage {
+    string msg = 1;
+}
+
+
+enum RespStatus {
+    UNKNOWN = 0;        // Unknown state
+    REQUESTED = 1;      // This prioritization request was detected by the traffic controller
+    PROCESSING = 2;     // Checking request (request is in queue, other requests are prior)
+    WATCHOTHERTRAFFIC = 3;    // Cannot give full permission,  therefore watch for other traffic.
+    GRANTED =  4;       // Intervention was successful and now prioritization is active
+    REJECTED = 5;       // traffic controller rejects/ignores also aborts a prev. granted request
+    MAXPRESENCE = 6;    // The Request has exceeded maxPresence time. Used when the controller has determined 
+                        // that the requester should then back off and request an alternative.
+    RESERVICELOCKED = 7;// Prior conditions have resulted in a reservice locked event: the controller requires 
+                        // the passage of time before another similar request will be accepted
+    BADREQUEST = 8;     // extended ETSI Status project
+    ERROR = 9;          // extended ETSI Status project
+    ABORTED = 10;       // extended ETSI Status project
+    CLOSED = 11;        // extended ETSI Status project
+    COMPLETED = 12;     // extended ETSI Status project
+
+  }
+
+//Anforderung (SRM - Signal Request Message)
+message SRM {
+    string source = 1;  // name of the client who provides data. optional, but must be provided on the first call.
+    uint32 msgID = 2;   //unique id for this message. autoincremented by client
+    string vva = 3;     // e.g. "K308VVA1"
+    uint32 fzgID = 4;   // vehicleId (unique number from the requestor)
+    uint32 bulkID = 5;   // bulkId (indicating a bulk of multiple vehicle)
+    string fzgType = 6; // Fahrzeug typ e.g. "velo", "srz"
+    string fzgSubType = 7; // Fahrzeug subtyp t.b.d.
+    float eta = 8;      // estimated time of arrival [s] relative to timestamp, -1 cancel any pending request for fzhID on the vva
+    uint32 prio = 9;    //reserved (not used)
+    uint64 timestamp = 10; // UTC millisec
+}
+
+//Anforderungsstatus (SSM - Signal Status Message)
+message SSM {
+    uint32 msgID = 1;       //unique id for this message. autoincremented by server
+    string vva = 2;         // same as request e.g. "K308VVA1"
+    uint32 fzgID = 3;       // vehicleId (same as srm)
+    uint32 bulkID = 4;
+    RespStatus status= 5;    //ETSI Status
+    RespStatus extStatus= 6; //project specific ETSI extensions
+    string statusMessage = 7;  // optional status message on Reject/Failure (please log)
+    uint64 timestamp = 8;   // UTC millisec
+}
+
+
+
+
+

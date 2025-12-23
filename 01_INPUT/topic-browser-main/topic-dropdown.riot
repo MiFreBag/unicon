@@ -1,0 +1,74 @@
+<topic-dropdown class="{props.dropDown.topics.length>0 & props.dropDown.show ? '' : 'hidden'}">
+
+  <!-- <div class="{props.dropDown.topics.length>0 & props.dropDown.show ? '' : 'hidden'}"> -->
+  <ul class="dropdown-menu dropdown-menu-dark mdd">
+    <li
+      each="{ (el,idx) in props.dropDown.topicListDisplayed}"
+      class="{idx === props.dropDown.selIdx ? 'sel dropdown-item' : 'dropdown-item'}"
+      onclick="{onClick}"
+      data-idx="{idx}"
+    >
+      {el.pretext} <a class="hl"> {el.seltext}</a> {el.posttext}
+    
+    </li>
+  </ul>
+<!-- </div> -->
+
+  <script>
+    export default {
+      onMounted(props, state) {},
+
+      onUpdated(){
+        const el =  this.$('.sel');
+        el?.scrollIntoView(false);
+      },
+
+      onClick(e) {
+        this.props.dropDown.onClick(e);
+      },
+    };
+  </script>
+  <style>
+    .dropdown-item {
+      padding: 0px;
+      padding-left: 2px;
+    }
+
+    .mdd {
+      overflow: auto;
+      display: inline;
+      border: 1px solid #ccc;
+      padding-top: 4px;
+      padding-bottom: 4px;
+      max-height: 50vh;
+      cursor: pointer;
+    }
+
+    .hl {
+      text-decoration: none;
+      color: rgb(92, 137, 221);
+      font-weight: bold;
+    }
+
+    .dropdown-menu-dark .hl {
+      color: rgb(173, 224, 253);
+    }
+
+    /* .dropdown-item:hover {
+      background-color: gold;
+    } */
+
+    .sel {
+      background-color:#e9ecef;
+    }
+
+    .dropdown-menu-dark .sel  {
+      background-color:#6b6e70;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+  </style>
+</topic-dropdown>

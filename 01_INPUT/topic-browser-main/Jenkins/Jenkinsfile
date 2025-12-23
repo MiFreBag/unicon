@@ -1,0 +1,125 @@
+@Library('bergauer-shared-library') _ // https://gitlab.bergauer.dev/baseware/tools/jenkins-bergauer-shared-library
+
+def SetNewVersion(){
+    sh '''#!/bin/bash
+        VERSION=$(cd $WORKSPACE; npm pkg get version | sed 's/"//g')
+        VERSION_PATCH=$(echo $VERSION | awk -F. '{print $NF}')
+        VERSION_MAJOR_MINOR=$(echo $VERSION | sed 's/\\.[0-9]*$//')
+        NEW_VERSION=${VERSION_MAJOR_MINOR}.$[VERSION_PATCH+1]
+        (cd $WORKSPACE; npm pkg set version=$NEW_VERSION)
+        echo "version update: $VERSION -> $NEW_VERSION" > git_commit_msg
+        echo -n "$NEW_VERSION" > CURRENT_VERSION
+    '''
+    return  "${ sh(returnStdout: true, script: 'cat CURRENT_VERSION')}"
+}
+def GetVersion(snapshotOrRelease){
+    def version = "${ sh(returnStdout: true, script: '''
+                        cd $WORKSPACE; npm pkg get version | sed 's/"//g'
+                    ''').trim()}"
+    if (snapshotOrRelease == 'release') {
+        return version
+    } else {
+        return "${version}-SNAPSHOT"
+    }
+}
+
+def projectValues
+def appVersion
+def dimageVersion
+def snapshotOrRelease = bergauerGetSnapshotOrRelease()
+
+pipeline {
+    options {
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+        quietPeriod(60)
+        buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '5'))
+    }
+    agent { label 'ubuntu22' }
+    environment {
+        SERVICE_NAME = "cpd-tobo-dev"
+    }
+    stages {
+        stage('Prepare') {
+            steps {
+                script {
+                    projectValues = readYaml file: 'Jenkins/projectValues.yaml'
+                    echo "${projectValues}"
+
+                    currentBuild.displayName = GetVersion(snapshotOrRelease)
+                    currentBuild.description = snapshotOrRelease
+                }
+            }
+        }
+        stage('Version change') {
+            when { expression { snapshotOrRelease == "release" } }
+            steps {
+                echo "Current new version is: ${SetNewVersion()}"
+                script { currentBuild.displayName = GetVersion(snapshotOrRelease) }
+            }
+        }
+
+        stage('Docker') {
+            steps {
+                script {
+                    appVersion = GetVersion(snapshotOrRelease)
+                    dimageVersion = bergauerGetNewDockerImageVersion(projectValues, appVersion)
+                    currentBuild.displayName = dimageVersion 
+
+                    sh """#!/bin/bash
+                        set -x
+                        set -u
+                        set -e
+                        {
+                            echo "CPD_TOBO_DEV_IMAGE=${projectValues.producedDockerImage}"
+                            echo "CPD_TOBO_DEV_TAG=${dimageVersion}"
+                        } > Docker/environment
+                    """
+
+                    bergauerDockerBuild(        projectValues, dimageVersion, snapshotOrRelease)
+                    bergauerPublishServiceJson( projectValues, dimageVersion)
+
+                    bergauerDockerComposeBuild( projectValues, dimageVersion)
+                    bergauerPublishHelm(        projectValues, dimageVersion)
+                    bergauerPublishBundleJson(  projectValues, dimageVersion)
+
+                    bergauerPublishDocs(        projectValues, dimageVersion)
+                }
+            }
+        }
+
+        stage("GIT Tag and Push") {
+            when { expression { snapshotOrRelease == "release" } }
+            steps {
+                sh '''#!/bin/bash
+                    set -e
+                    set -u
+                    set -x
+
+                    if [ "$GIT_LOCAL_BRANCH" != 'main' ]; then
+                        exit 1
+                    fi
+                    GIT_COMMIT_MSG=$(cat git_commit_msg)
+                    rm git_commit_msg
+
+                    git status
+                    git diff package.json
+                    git diff Docker/helm-charts/*/Chart.yaml
+                    git add package.json
+                    git add Docker/helm-charts/*/Chart.yaml
+                    git commit -m "$GIT_COMMIT_MSG"
+                    git fetch
+                    git rebase origin/${GIT_LOCAL_BRANCH}
+                    git push origin ${GIT_LOCAL_BRANCH}
+                '''
+            }
+        }
+    }
+
+    post {
+        cleanup {
+            cleanWs()
+        }
+    }
+}

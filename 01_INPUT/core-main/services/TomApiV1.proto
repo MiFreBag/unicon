@@ -1,0 +1,49 @@
+
+syntax = "proto3";
+
+package core.service.tomApiV1;
+
+import "core/cpd/topicrpc.proto";
+
+// CAUTION : work in progress 
+
+service client {
+    // transfer control of topics by sending matched topics and adding recv. wlfilter.whitlist to own wlfilter.blacklist
+    //if forceWlFilter (optional) is set, new wlFilter is set to own wlFilter (Caution: all have to fit, you have to know what you do)
+    rpc transferTopics(TransferReq) returns (core.cpd.topicrpc.TopicRpcResp); 
+}
+
+//param
+message TransferReq {
+    string topicpattern = 1;
+    string streamRespTopic = 2; //defines where the data should be streamed to, if != '' no "normal" rpc response is send tbd!?
+    int32 batchSize = 3;    //0=infinit, resp. all at once //may not be supported yet
+}
+
+//response
+message TopicsListResp {
+    repeated TopicRecord TopicRecord = 1;
+}
+
+//structure
+message TopicRecord {
+    string t = 1; //topicname
+    bool isd = 2; //isDelta
+    string d = 3; //data
+
+}
+
+message WhitelistFilter {
+    repeated string whitelist = 1;
+    repeated string blacklist = 2;
+    repeated string forcedwhitelist = 3;
+}
+
+//published messages (data-topics) from service
+//-------------------------------
+
+message currentWlFilters {
+    WhitelistFilter rcv = 1;
+    WhitelistFilter store = 2;
+    WhitelistFilter db = 3;
+}

@@ -1,0 +1,52 @@
+
+syntax = "proto3";
+
+package core.cpd_clientApiV1;
+
+import "google/protobuf/empty.proto";
+
+
+// version 1.0.0
+// should only be used when using cpd-adapter as a sidecar
+service cpd {
+  
+  rpc ping(PingMessage)returns (PingMessage) {}
+
+  rpc subscribeStream(SubsStreamInit) returns (stream TopicChange) {}  // only call once for initialization
+
+  rpc subscribe(TopicPattern) returns (SubsResponse) {}                // multiple calls add multiple subscription
+  rpc unsubscribe(UnsubscribeRequest) returns (google.protobuf.Empty) {}
+
+  rpc publish(TopicData) returns (google.protobuf.Empty) {}
+}
+
+message PingMessage {
+    string msg = 1;
+}
+
+message SubsStreamInit {
+    string clientClass = 1; // clientClass + clientName form a unique UID in context of all services in the system
+    string clientName = 2;
+}
+
+message TopicPattern {
+    repeated string topicpattern = 2;
+}
+
+message SubsResponse {
+    uint32 subsId = 4; // on failure, subsId must not to be interpreted
+}
+
+message UnsubscribeRequest {
+    uint32 subsId = 1; //removes subscription with same id provided by subscribe
+}
+
+message TopicData {
+    string topic = 1; // e.g "vs.twin.sim.det.1"
+    string data = 2; // json object as string e.g. '{"val": 2}'
+}
+
+message TopicChange {
+    uint32 subsId = 1; //subsId
+    repeated TopicData topicData = 2;
+}

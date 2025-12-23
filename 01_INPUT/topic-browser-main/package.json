@@ -1,0 +1,20 @@
+{
+  "name": "tobo",
+  "version": "0.23.7",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "http-server -p 8080"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@gitlab.bergauer.dev:baseware/frontend/cpd/topic-browser.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bootstrap": "^5.3.3",
+    "riot": "^9.1.5",
+    "riot-observable": "^3.0.0"
+  }
+}

@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+option csharp_namespace = "Bergauer.Apps.NtcipVmsAdapter";
+
+package core.services.vmsV1;
+
+// Vms service definition
+service Vms {
+  rpc SetGraphicInFullScreenMode (GraphicInFullScreenModeRequest) returns (VmsSuccessReply);
+  rpc SetGraphicByNameInFullScreenMode (GraphicByNameInFullScreenModeRequest) returns (VmsSuccessReply);
+  rpc SetDefaultState(DefaultStateRequest) returns (VmsSuccessReply);
+  rpc SetMessageNr(MessageNrRequest) returns (VmsSuccessReply);
+  rpc SetOnSign(SetOnSignRequest) returns (VmsSuccessReply);
+}
+
+//Method parameter definitions
+//----------------------------
+// Command request containing properties to set a base64-encoded graphic in full screen mode on a sign
+message GraphicInFullScreenModeRequest {
+  string graphic = 1;                     // Base64-encoded bmp graphic
+  optional string graphicName = 2;
+  optional string deviceName = 3;
+  optional int32 height = 4;              // Height that can be set in in the graphic table
+  optional int32 width = 5;               // Width that can be set in in the graphic table
+  optional bool transparentEnabled = 6;   // Transparency can be set in the graphic table
+  optional string transparentColor = 7;   // It's a rgb hex color, as #FF5733, that can be set in the graphic table
+  optional int32 messagePriority = 8;     // Default: 1 , Comment: priority for the message set on the sign
+  optional int32 messageDuration = 9;     // Default: 65535 , Comment: duration in minutes used for the sign message... 65535 equals to infinite
+  optional int32 x = 10;                  // Default: 0 , Comment: x coordinate to position the graphic on the sign (1 is the leftmost pixel)
+  optional int32 y = 11;                  // Default: 0 , Comment: y coordinate to position the graphic on the sign (1 is the uppermost pixel)
+}
+
+// Command request containing properties to set a graphic by name in full screen mode on a sign
+message GraphicByNameInFullScreenModeRequest {
+  string graphicName = 1;
+  optional string deviceName = 2;
+  optional int32 messagePriority = 3;     // Default: 1 , Comment: priority for the message set on the sign
+  optional int32 messageDuration = 4;     // Default: 65535 , Comment: duration in minutes used for the sign message... 65535 equals to infinite
+  optional int32 x = 5;                   // Default: 0 , Comment: x coordinate to position the graphic on the sign (1 is the leftmost pixel)
+  optional int32 y = 6;                   // Default: 0 , Comment: y coordinate to position the graphic on the sign (1 is the uppermost pixel)
+}
+
+// Command request to set the default state
+message DefaultStateRequest {
+  optional string deviceName = 1;
+}
+
+// Command request to set the message nr
+message MessageNrRequest {
+  int32 messageNr = 1;
+  optional string deviceName = 2;
+}
+
+// Command request to either run SetGraphicInFullScreenMode or SetMessageNr
+message SetOnSignRequest {
+  optional string deviceName = 1;
+  optional int32 messageNr = 2;
+  optional string graphic = 3;
+  optional string graphicName = 4;
+  optional int32 height = 5;
+  optional int32 width = 6;
+  optional bool transparentEnabled = 7;
+  optional string transparentColor = 8;
+  optional int32 messagePriority = 9;
+  optional int32 messageDuration = 10;
+  optional int32 x = 11;
+  optional int32 y = 12;
+}
+
+//Method reply definitions
+//----------------------------
+// Vms reply representing the successful result
+message VmsSuccessReply {
+  bool ackn = 1;
+  string data = 2;
+}
+
+// Vms reply representing the error result
+message VmsErrorReply {
+  uint32 code = 1;
+  string message = 2;
+}

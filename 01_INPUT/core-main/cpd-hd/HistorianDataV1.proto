@@ -1,0 +1,76 @@
+
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package core.service.historiandataV1;
+
+
+service HistorianData {
+    rpc getData(GetDataReq) returns (JsonStringResp);
+    rpc getLatestData(GetLatestDataReq) returns (JsonStringResp);
+    rpc browseTopicNames(BrowseTopicNamesReq) returns (JsonStringResp);
+    //rpc browseTopicNames(browseTopicNamesReq) returns (browseTopicNamesResp);
+}
+
+
+enum NameRespMode {
+    DEFAULT = 0;    // names only
+    WITHDATE = 1;   //names and last update date
+    WITHDATA = 2;   // including latest data
+}
+
+enum DataRespMode {
+    FULL = 0;        //Full data
+    VALDATA = 1;      //ts, val, unit, valid Fields
+    DYNDATAONLY = 2;    // only the dynamic part. typically val and latest data updates
+    STATICDATAONLY = 3; // only static part. use for merge effieciently on client
+}
+
+
+message GetDataReq {
+    string topicName = 1;
+    google.protobuf.Timestamp begin = 2; //optional if empty usses NOW() - 1h or interval used
+    google.protobuf.Timestamp end = 3;   //optional if empty uses NOW()
+    int32 hinterval = 4;                 //optional if set used to calc begin
+    DataRespMode respMode = 5;          
+    int32 limit = 6;                    //limits the result response
+    string beginTopicName = 7;          //start search on this fullnamed topic. udes for pagination in combination with limit
+                                        // default='', efficiently query from beginning
+}
+
+message GetDataResp_old {
+    message Record {
+        string ts = 1;
+        string data = 2;
+    };
+    repeated Record record = 1;
+}
+
+message JsonStringResp {
+   string jsonString = 1;
+}
+
+
+message GetLatestDataReq {
+    string topicPattern = 1;
+    int32 maxAgeDay = 2;        //ignore all older then maxAgeDay days
+    DataRespMode respMode = 3; 
+    int32 limit = 4;
+    string beginTopicName = 5;  //start search on this fullnamed topic. udes for pagination in combination with limit
+                                // default='', efficiently query from beginning
+}
+
+
+message BrowseTopicNamesReq {
+    string topicPattern = 1;
+    int32 maxAgeDay = 2;
+    NameRespMode respMode = 3; 
+    int32 limit = 4;    
+    string beginTopicName = 5;   //start search on this fullnamed topic. udes for pagination in combination with limit
+                                // default='', efficiently query from beginning
+}
+
+// message browseTopicNamesResp {
+//     repeated string topicName = 1;
+// }

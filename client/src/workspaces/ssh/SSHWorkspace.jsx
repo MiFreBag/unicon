@@ -1,0 +1,227 @@
+// client/src/workspaces/ssh/SSHWorkspace.jsx
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { listConnections, connectConnection, disconnectConnection, op } from '../../lib/api';
+import { Play, Square, Terminal, RefreshCw } from 'lucide-react';
+import { Terminal as XTerm } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
+import 'xterm/css/xterm.css';
+
+function makeWSUrl() {
+  // Try dev proxy first, then fallback to explicit ws port
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  try { return `${proto}://${location.host}/ws`; } catch { /* ignore */ }
+  return `${proto}://localhost:8080`;
+}
+
+export default function SSHWorkspace() {
+  const [connections, setConnections] = useState([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [status, setStatus] = useState('disconnected');
+  const [sessionId, setSessionId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const termRef = useRef(null);
+  const xtermRef = useRef(null);
+  const fitRef = useRef(null);
+  const wsRef = useRef(null);
+
+  const sshConnections = useMemo(() => (connections || []).filter(c => c.type === 'ssh'), [connections]);
+
+  useEffect(() => {
+    (async () => {
+      const res = await listConnections();
+      setConnections(res.connections || []);
+      const first = (res.connections || []).find(c => c.type === 'ssh');
+      if (first) setSelectedId(first.id);
+    })();
+  }, []);
+
+  // Setup WebSocket to receive shell data
+  useEffect(() => {
+    const ws = new WebSocket(makeWSUrl());
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg?.type === 'ssh' && msg?.data?.event === 'shellData') {
+          if (msg.data.sessionId === sessionId) {
+            xtermRef.current?.write(msg.data.data);
+          }
+        }
+      } catch (_) {}
+    };
+    wsRef.current = ws;
+    return () => { try { ws.close(); } catch (_) {} };
+  }, [sessionId]);
+
+  // Create terminal instance
+  useEffect(() => {
+    if (!termRef.current) return;
+    const xterm = new XTerm({
+      fontFamily: 'JetBrains Mono, Fira Code, Consolas, monospace',
+      fontSize: 13,
+      convertEol: true,
+      cursorBlink: true,
+      theme: { background: '#ffffff', foreground: '#111827' }
+    });
+    const fit = new FitAddon();
+    xterm.loadAddon(fit);
+    xterm.open(termRef.current);
+    fit.fit();
+    xtermRef.current = xterm;
+    fitRef.current = fit;
+
+    const onResize = () => { try { fit.fit(); } catch {} };
+    window.addEventListener('resize', onResize);
+
+    // Send typed data to server when a session is active
+    xterm.onData(async (data) => {
+      if (!sessionId) return;
+      try { await op(selectedId, 'shellInput', { sessionId, data }); } catch {}
+    });
+
+    return () => {
+      window.removeEventListener('resize', onResize);
+      try { xterm.dispose(); } catch {}
+    };
+  }, []);
+
+  async function onConnect() {
+    if (!selectedId) return;
+    setLoading(true);
+    try {
+      await connectConnection(selectedId);
+      setStatus('connected');
+      // open shell
+      const cols = xtermRef.current?.cols || 80;
+      const rows = xtermRef.current?.rows || 24;
+      const r = await op(selectedId, 'shellOpen', { cols, rows });
+      const sid = r?.data?.sessionId;
+      setSessionId(sid);
+      // greet
+      xtermRef.current?.write('\r\n');
+    } catch (e) {
+      xtermRef.current?.writeln(`\r\nError: ${e.message}`);
+    } finally { setLoading(false); }
+  }
+
+  async function onDisconnect() {
+    if (!selectedId) return;
+    setLoading(true);
+    try {
+      if (sessionId) { await op(selectedId, 'shellClose', { sessionId }); setSessionId(null); }
+      await disconnectConnection(selectedId);
+      setStatus('disconnected');
+    } finally { setLoading(false); }
+  }
+
+  // When terminal resizes, notify server
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!sessionId) return;
+      const cols = xtermRef.current?.cols;
+      const rows = xtermRef.current?.rows;
+      if (cols && rows) { op(selectedId, 'shellResize', { sessionId, cols, rows }).catch(() => {}); }
+    }, 1500);
+    return () => clearInterval(id);
+  }, [sessionId, selectedId]);
+
+  // ---- SFTP helpers ----
+  const [sftpPath, setSftpPath] = useState('.');
+  const [entries, setEntries] = useState([]);
+
+  async function listSftp() {
+    if (!selectedId || status !== 'connected') return;
+    try {
+      const res = await op(selectedId, 'sftpList', { path: sftpPath });
+      const list = res?.data?.entries || res?.entries || [];
+      setEntries(list);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function downloadFile(name) {
+    try {
+      const p = sftpPath.endsWith('/') ? `${sftpPath}${name}` : `${sftpPath}/${name}`;
+      const res = await op(selectedId, 'sftpGet', { path: p });
+      const b64 = res?.data?.base64 || res?.base64;
+      if (!b64) return;
+      const blob = b64toBlob(b64);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error(e); }
+  }
+
+  function b64toBlob(b64) {
+    const byteChars = atob(b64);
+    const byteNums = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+    const byteArray = new Uint8Array(byteNums);
+    return new Blob([byteArray]);
+  }
+
+  async function uploadFile(file) {
+    const arrayBuffer = await file.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(arrayBuffer);
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+    const p = sftpPath.endsWith('/') ? `${sftpPath}${file.name}` : `${sftpPath}/${file.name}`;
+    await op(selectedId, 'sftpPut', { path: p, base64 });
+    await listSftp();
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-end gap-3">
+        <div>
+          <label className="block text-sm text-gray-600">SSH Connection</label>
+          <select className="border rounded px-3 py-2 min-w-[16rem]" value={selectedId} onChange={e => setSelectedId(e.target.value)}>
+            {sshConnections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.config?.host})</option>)}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onConnect} disabled={!selectedId || loading || status==='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
+            {loading ? <RefreshCw size={14} className="animate-spin"/> : <Play size={14}/>} Connect
+          </button>
+          <button onClick={onDisconnect} disabled={!selectedId || loading || status!=='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
+            <Square size={14}/> Disconnect
+          </button>
+        </div>
+      </div>
+
+      <div className="border rounded h-[360px] overflow-hidden">
+        <div ref={termRef} className="h-full" aria-label="SSH Terminal" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="border rounded p-3">
+          <div className="flex items-end gap-2 mb-2">
+            <div className="flex-1">
+              <label className="block text-sm text-gray-600">SFTP Path</label>
+              <input className="w-full border rounded px-2 py-1" value={sftpPath} onChange={e => setSftpPath(e.target.value)} />
+            </div>
+            <button className="px-3 py-1.5 border rounded" disabled={status!=='connected'} onClick={listSftp}>List</button>
+            <label className="px-3 py-1.5 border rounded cursor-pointer">
+              Upload
+              <input type="file" className="hidden" onChange={e => e.target.files && e.target.files[0] && uploadFile(e.target.files[0])} />
+            </label>
+          </div>
+          <div className="max-h-48 overflow-auto text-sm">
+            {entries.map((e, i) => (
+              <div key={i} className="flex items-center justify-between border-b py-1">
+                <span className="font-mono">{e.filename}</span>
+                <button className="px-2 py-0.5 text-xs border rounded" onClick={() => downloadFile(e.filename)}>Download</button>
+              </div>
+            ))}
+            {entries.length === 0 && <div className="text-gray-500">No entries</div>}
+          </div>
+        </div>
+        <div className="text-xs text-gray-500 flex items-center">Status: {status}{sessionId ? ` • session ${sessionId.slice(0,8)}` : ''}</div>
+      </div>
+    </div>
+  );
+}

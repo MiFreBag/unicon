@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  name: {{.Values.env.SERVICENAME}}
+spec:
+  type: NodePort
+  ports:
+  - name:        "cpd-tobo-dev-http"
+    port:        {{ .Values.env.HTTP_PORT | default 8080 }}
+    nodePort:    {{ .Values.env.HTTP_NODEPORT | default 30018 }}
+  selector:
+    io.kompose.service:  {{.Values.env.SERVICENAME}}
+status:
+  loadBalancer: {}
