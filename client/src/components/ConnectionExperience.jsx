@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Database, Globe, Zap, Server, Clock, Activity, Search, CheckCircle2, Play, ListTree, History, RotateCcw, Trash2 } from 'lucide-react'
+import { Database, Globe, Zap, Server, Clock, Activity, Search, CheckCircle2, Play, ListTree, History, RotateCcw, Trash2, MessageSquare } from 'lucide-react'
 import UniversalTestClient from './UniversalTestClient'
 
 const protocolOptions = [
@@ -20,6 +20,18 @@ const protocolOptions = [
     name: 'WebSocket',
     icon: <Zap className="w-5 h-5" />,
     description: 'Inspect available channels and push diagnostics.'
+  },
+  {
+    id: 'grpc',
+    name: 'gRPC',
+    icon: <MessageSquare className="w-5 h-5" />,
+    description: 'Explore services, methods and call schemas.'
+  },
+  {
+    id: 'sql',
+    name: 'SQL',
+    icon: <Database className="w-5 h-5" />,
+    description: 'Preview schemas, tables and result sets.'
   }
 ]
 
@@ -34,13 +46,21 @@ const mockBrowseTrees = {
   ],
   websocket: [
     { id: 'channels', label: 'Channels', children: ['telemetry', 'alerts', 'audit-log'] }
+  ],
+  grpc: [
+    { id: 'services', label: 'Services', children: ['InventoryService', 'TelemetryService'] },
+    { id: 'InventoryService', label: 'InventoryService', children: ['ListItems', 'UpdateStock'] }
+  ],
+  sql: [
+    { id: 'public', label: 'public', children: ['devices', 'readings', 'events'] },
+    { id: 'devices', label: 'devices', children: ['id', 'name', 'last_seen'] }
   ]
 }
 
 const seededMonitoredItems = [
-  { client: 'Gateway-A', connector: 'OPC-UA', source: 'PLC1/Temp', name: 'Temperature', value: '42.7 °C', state: 'Active' },
+  { client: 'Gateway-A', connector: 'OPC UA', source: 'PLC1/Temp', name: 'Temperature', value: '42.7 °C', state: 'Active' },
   { client: 'Gateway-A', connector: 'MQTT', source: 'telemetry/pressure', name: 'Pressure', value: '5.2 bar', state: 'Active' },
-  { client: 'Gateway-B', connector: 'REST', source: 'v1/assets/12', name: 'Asset 12', value: 'online', state: 'Idle' },
+  { client: 'Gateway-B', connector: 'REST API', source: 'v1/assets/12', name: 'Asset 12', value: 'online', state: 'Idle' },
   { client: 'Gateway-C', connector: 'SQL', source: 'inventory.items', name: 'Item count', value: '1,024', state: 'Active' }
 ]
 
@@ -53,11 +73,20 @@ const ConnectionExperience = () => {
   const [wizardStep, setWizardStep] = useState(1)
   const [dataSource, setDataSource] = useState({ name: '', type: 'OPC UA', host: '', notes: '' })
   const [quickConnect, setQuickConnect] = useState({ url: '', label: '' })
+  const [quickError, setQuickError] = useState('')
   const [quickHistory, setQuickHistory] = useState([])
   const [selectedProtocol, setSelectedProtocol] = useState('opc-ua')
   const [logs, setLogs] = useState(initialLog)
   const [monitoredItems, setMonitoredItems] = useState(seededMonitoredItems)
   const [filter, setFilter] = useState('')
+
+  const endpointPlaceholders = {
+    'OPC UA': 'opc.tcp://hostname:4840',
+    REST: 'https://api.example.com',
+    WebSocket: 'wss://example.com/socket',
+    'gRPC': 'localhost:50051',
+    SQL: 'postgres://user:pass@host:5432/db'
+  }
 
   const filteredItems = useMemo(() => {
     const needle = filter.toLowerCase()
@@ -102,8 +131,12 @@ const ConnectionExperience = () => {
   const handleQuickConnect = (url = quickConnect.url, label = quickConnect.label) => {
     const trimmedUrl = url.trim()
     const trimmedLabel = label.trim()
-    if (!trimmedUrl) return
+    if (!trimmedUrl) {
+      setQuickError('Enter a URL or connection string to start a probe.')
+      return
+    }
 
+    setQuickError('')
     logQuickConnect(trimmedUrl, trimmedLabel)
     setQuickHistory(prev => [
       { id: Date.now(), url: trimmedUrl, label: trimmedLabel, ts: new Date() },
@@ -147,7 +180,7 @@ const ConnectionExperience = () => {
               value={dataSource.type}
               onChange={(e) => setDataSource({ ...dataSource, type: e.target.value })}
             >
-              {['OPC UA', 'REST', 'WebSocket', 'SQL'].map(option => (
+              {['OPC UA', 'REST', 'WebSocket', 'gRPC', 'SQL'].map(option => (
                 <option key={option}>{option}</option>
               ))}
             </select>
@@ -157,7 +190,7 @@ const ConnectionExperience = () => {
             <p className="text-sm font-medium mb-2">2. Endpoint</p>
             <input
               className="w-full border rounded px-3 py-2 text-sm"
-              placeholder="opc.tcp://hostname:4840"
+              placeholder={endpointPlaceholders[dataSource.type] || 'Enter endpoint details'}
               value={dataSource.host}
               onChange={(e) => setDataSource({ ...dataSource, host: e.target.value })}
             />
@@ -203,6 +236,7 @@ const ConnectionExperience = () => {
             value={quickConnect.url}
             onChange={(e) => setQuickConnect({ ...quickConnect, url: e.target.value })}
           />
+          {quickError && <p className="text-xs text-red-600">{quickError}</p>}
           <input
             className="w-full border rounded px-3 py-2 text-sm"
             placeholder="Label"
