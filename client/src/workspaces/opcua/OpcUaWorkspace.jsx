@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { RefreshCw, Settings, Database } from 'lucide-react';
 import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
+import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 
 export default function OpcUaWorkspace({ connection }) {
   const [nodes, setNodes] = useState([]);
@@ -29,7 +30,10 @@ export default function OpcUaWorkspace({ connection }) {
     <div className="h-full flex flex-col space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium">OPC UA Browser</h3>
-        <Button variant="secondary" onClick={browseNodes} disabled={isLoading} leftEl={<RefreshCw size={16} className={isLoading ? 'mr-2 animate-spin' : 'mr-2'} />}>Refresh</Button>
+        <div className="flex items-center gap-3">
+          <ConnectionBadge connection={connection} />
+          <Button variant="secondary" onClick={browseNodes} disabled={isLoading} leftEl={<RefreshCw size={16} className={isLoading ? 'mr-2 animate-spin' : 'mr-2'} />}>Refresh</Button>
+        </div>
       </div>
       <div className="flex-1 grid grid-cols-2 gap-4">
         <div className="border rounded p-4">

@@ -5,6 +5,7 @@ import { Play, Square, RefreshCw } from 'lucide-react';
 import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
 import Spinner from '../../ui/Spinner.jsx';
+import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 
 export default function SqlWorkspace() {
   const [connections, setConnections] = useState([]);
@@ -87,6 +88,7 @@ export default function SqlWorkspace() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-end gap-3">
+        <ConnectionHeader connections={connections} selectedId={selectedId} status={status} />
         <div>
           <label className="block text-sm text-gray-600">SQL Connection</label>
           <select className="border border-swarco-grey-400 rounded px-3 py-2 min-w-[16rem] focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600" value={selectedId}
@@ -156,6 +158,15 @@ export default function SqlWorkspace() {
       {meta && !rows.length && (
         <div className="text-sm text-gray-700 bg-gray-50 border rounded p-3"><pre>{JSON.stringify(meta, null, 2)}</pre></div>
       )}
+    </div>
+  );
+}
+
+function ConnectionHeader({ connections, selectedId, status }) {
+  const sel = (connections || []).find(c => c.id === selectedId) || null;
+  return (
+    <div className="ml-auto">
+      <ConnectionBadge connection={sel || undefined} status={status} />
     </div>
   );
 }

@@ -2,6 +2,8 @@
 import React, { useState } from 'react';
 import { RefreshCw, Send } from 'lucide-react';
 
+import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
+
 export default function CpdWorkspace({ connection }) {
   const [topic, setTopic] = useState('sw.sensor.temperature');
   const [payload, setPayload] = useState('{"value": 23.5}');
@@ -27,7 +29,10 @@ export default function CpdWorkspace({ connection }) {
 
   return (
     <div className="h-full flex flex-col space-y-4">
-      <h3 className="text-lg font-medium">CPD Workspace</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-medium">CPD Workspace</h3>
+        <ConnectionBadge connection={connection} />
+      </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <input className="w-full border rounded px-3 py-2" value={topic} onChange={e => setTopic(e.target.value)} />

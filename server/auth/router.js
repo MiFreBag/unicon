@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
 const bcrypt = require('bcryptjs');
-const { issueJWT } = require('./middleware');
+const { issueJWT, verifyJWT } = require('./middleware');
 
 module.exports = function createAuthRouter(db) {
   // Fallback in-memory if no db
@@ -62,11 +62,29 @@ module.exports = function createAuthRouter(db) {
   router.post('/forgot', async (req, res) => {
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ success: false, error: 'email required' });
-    // In a real system, generate a token and send email; here we respond success.
-    return res.json({ success: true, message: 'If the account exists, a reset link was sent (demo).' });
+    // In a real system, generate and email a token. For demo, return a reset URL.
+    const token = crypto.randomBytes(16).toString('hex');
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const reset_url = `${origin}/unicon/auth/reset?token=${token}`;
+    return res.json({ success: true, reset_url });
   });
 
   router.post('/logout', (req,res) => { return res.json({ success: true }); });
+
+  // Unlink external OAuth provider account for current user
+  router.delete('/oauth/:provider', verifyJWT, async (req, res) => {
+    try {
+      const provider = req.params.provider;
+      // remove linked account
+      if (db?.deleteOauthAccount) await db.deleteOauthAccount(req.user.sub, provider);
+      // clear current provider preference if it matches
+      const current = await db.getUserPref(req.user.sub, 'provider');
+      if (current === provider) await db.deleteUserPref(req.user.sub, 'provider');
+      return res.json({ success: true });
+    } catch (e) {
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  });
 
   return router;
 };

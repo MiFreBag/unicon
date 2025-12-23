@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
+import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 
 export default function WebSocketWorkspace({ connection }) {
   const [message, setMessage] = useState('');
@@ -58,7 +59,10 @@ export default function WebSocketWorkspace({ connection }) {
 
   return (
     <div className="h-full flex flex-col space-y-4">
-      <h3 className="text-lg font-medium">WebSocket Client</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-medium">WebSocket Client</h3>
+        <ConnectionBadge connection={connection} status={status} />
+      </div>
       <div className="flex items-center gap-3 text-sm">
         <span>Status: {status}</span>
         <label className="flex items-center gap-1">

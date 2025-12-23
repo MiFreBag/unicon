@@ -1,12 +1,27 @@
 // client/src/features/connections/ConnectionList.jsx
 import React, { useEffect, useState } from 'react';
 import { listConnections, createConnection, deleteConnection, connectConnection, disconnectConnection } from '../../lib/api';
-import { Plus, Trash2, Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Wifi, WifiOff, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import Spinner from '../../ui/Spinner.jsx';
 
 export default function ConnectionList() {
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
+  const [connecting, setConnecting] = useState(new Set()); // ids currently connecting
+  const [expanded, setExpanded] = useState({}); // id -> bool
+  const [logs, setLogs] = useState({}); // id -> [{ts, level, message}]
+
+  const pushLog = (id, entry) => setLogs(prev => {
+    const arr = (prev[id] || []).slice(-49); // keep last 50
+    arr.push({ ts: new Date().toISOString(), level: entry.level || 'info', message: entry.message });
+    return { ...prev, [id]: arr };
+  });
+
+  function statusBeacon(status) {
+    const color = status === 'connected' ? 'bg-green-500' : status === 'connecting' ? 'bg-amber-500' : status === 'error' ? 'bg-red-500' : 'bg-gray-300';
+    return <span className={`inline-block w-2.5 h-2.5 rounded-full mr-2 ${color}`} />;
+  }
 
   async function load() {
     setLoading(true);
@@ -18,6 +33,26 @@ export default function ConnectionList() {
     }
   }
   useEffect(() => { load(); }, []);
+
+  // Listen to backend broadcasts for live status updates
+  useEffect(() => {
+    const onMsg = (e) => {
+      const msg = e.detail;
+      if (msg?.type === 'connection_status' && msg?.data?.connectionId) {
+        const { connectionId, status } = msg.data;
+        setConnections(prev => prev.map(c => c.id === connectionId ? { ...c, status } : c));
+        setConnecting(prev => { const next = new Set([...prev]); next.delete(connectionId); return next; });
+        pushLog(connectionId, { level: 'info', message: `Status changed to ${status}` });
+      } else if (msg?.type === 'log' && msg?.data?.message) {
+        const { connectionId, message, type } = msg.data || {};
+        if (connectionId) {
+          pushLog(connectionId, { level: type === 'error' ? 'error' : (type === 'warn' ? 'warn' : 'info'), message });
+        }
+      }
+    };
+    window.addEventListener('unicon-ws', onMsg);
+    return () => window.removeEventListener('unicon-ws', onMsg);
+  }, []);
 
   async function onCreate(payload) {
     await createConnection(payload);
@@ -32,12 +67,30 @@ export default function ConnectionList() {
 
   async function onToggle(conn) {
     if (conn.status === 'connected') {
-      await disconnectConnection(conn.id);
+      try {
+        await disconnectConnection(conn.id);
+        pushLog(conn.id, { level: 'info', message: 'Disconnect requested' });
+      } catch (e) {
+        pushLog(conn.id, { level: 'error', message: e.message || 'Disconnect failed' });
+      } finally {
+        await load();
+      }
     } else {
-      await connectConnection(conn.id);
+      setConnecting(prev => new Set([...prev, conn.id]));
+      pushLog(conn.id, { level: 'info', message: 'Connect requested' });
+      try {
+        await connectConnection(conn.id);
+      } catch (e) {
+        pushLog(conn.id, { level: 'error', message: e.message || 'Connect failed' });
+        setConnections(prev => prev.map(c => c.id === conn.id ? { ...c, status: 'disconnected' } : c));
+      } finally {
+        setConnecting(prev => { const next = new Set([...prev]); next.delete(conn.id); return next; });
+        await load();
+      }
     }
-    await load();
   }
+
+  const toggleExpanded = (id) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
 
   return (
     <div className="bg-white">
@@ -63,23 +116,55 @@ export default function ConnectionList() {
             </tr>
           </thead>
           <tbody>
-            {connections.map(c => (
-              <tr key={c.id} className="border-t">
-                <td className="p-2">{c.name}</td>
-                <td className="p-2 uppercase text-xs text-gray-600">{c.type}</td>
-                <td className="p-2">
-                  <span className={`connection-status ${c.status}`}>{c.status}</span>
-                </td>
-                <td className="p-2 text-right">
-                  <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" onClick={() => onToggle(c)}>
-                    {c.status === 'connected' ? <><WifiOff size={14} /> Disconnect</> : <><Wifi size={14} /> Connect</>}
-                  </button>
-                  <button className="inline-flex items-center gap-1 px-2 py-1 border rounded text-red-600 hover:bg-red-50" onClick={() => onDelete(c.id)}>
-                    <Trash2 size={14} /> Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {connections.map(c => {
+              const isConnecting = connecting.has(c.id);
+              const status = isConnecting ? 'connecting' : (c.status || 'disconnected');
+              return (
+                <React.Fragment key={c.id}>
+                  <tr className="border-t align-top">
+                    <td className="p-2">
+                      <button className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900 mr-2" onClick={() => toggleExpanded(c.id)} title={expanded[c.id] ? 'Hide logs' : 'Show logs'}>
+                        {expanded[c.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </button>
+                      {c.name}
+                    </td>
+                    <td className="p-2 uppercase text-xs text-gray-600">{c.type}</td>
+                    <td className="p-2">
+                      <div className="inline-flex items-center">
+                        {statusBeacon(status)}
+                        <span className="capitalize mr-2">{status}</span>
+                        {isConnecting && <Spinner size={14} />}
+                      </div>
+                    </td>
+                    <td className="p-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" onClick={() => onToggle(c)} disabled={isConnecting}>
+                        {status === 'connected' ? (<><WifiOff size={14} /> Disconnect</>) : (<><Wifi size={14} /> {isConnecting ? 'Connecting…' : 'Connect'}</>)}
+                      </button>
+                      <button className="inline-flex items-center gap-1 px-2 py-1 border rounded text-red-600 hover:bg-red-50" onClick={() => onDelete(c.id)} disabled={isConnecting}>
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    </td>
+                  </tr>
+                  {expanded[c.id] && (
+                    <tr className="bg-gray-50">
+                      <td colSpan={4} className="p-2">
+                        <div className="max-h-40 overflow-auto text-xs font-mono leading-5">
+                          {(logs[c.id] || []).slice().reverse().map((l, idx) => (
+                            <div key={idx} className={l.level === 'error' ? 'text-red-700' : (l.level === 'warn' ? 'text-amber-700' : 'text-gray-800')}>
+                              <span className="opacity-60 mr-2">{new Date(l.ts).toLocaleTimeString()}</span>
+                              {l.message}
+                            </div>
+                          ))}
+                          {(!logs[c.id] || logs[c.id].length === 0) && (
+                            <div className="text-gray-500">No logs yet.</div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
             {connections.length === 0 && (
               <tr><td className="p-4 text-center text-gray-500" colSpan={4}>{loading ? 'Loading...' : 'No connections'}</td></tr>
             )}

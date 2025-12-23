@@ -43,6 +43,14 @@ class DB {
       value TEXT NOT NULL,
       PRIMARY KEY (user_id, key)
     )`);
+    await this._run(`CREATE TABLE IF NOT EXISTS oauth_accounts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      provider_user_id TEXT NOT NULL,
+      linked_at TEXT NOT NULL,
+      UNIQUE(user_id, provider)
+    )`);
     return this;
   }
 
@@ -125,6 +133,26 @@ class DB {
   async getUserPref(userId, key) {
     const rows = await this._all('SELECT value FROM user_prefs WHERE user_id = ? AND key = ?', [userId, key]);
     return rows[0]?.value ?? null;
+  }
+
+  async deleteUserPref(userId, key) {
+    await this._run('DELETE FROM user_prefs WHERE user_id = ? AND key = ?', [userId, key]);
+  }
+
+  async upsertOauthAccount({ id, user_id, provider, provider_user_id, linked_at }) {
+    await this._run(
+      `INSERT INTO oauth_accounts (id, user_id, provider, provider_user_id, linked_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, provider) DO UPDATE SET provider_user_id=excluded.provider_user_id, linked_at=excluded.linked_at`,
+      [id, user_id, provider, provider_user_id, linked_at]
+    );
+  }
+
+  async deleteOauthAccount(user_id, provider) {
+    await this._run('DELETE FROM oauth_accounts WHERE user_id = ? AND provider = ?', [user_id, provider]);
+  }
+
+  async listOauthAccounts(user_id) {
+    return await this._all('SELECT provider, provider_user_id, linked_at FROM oauth_accounts WHERE user_id = ?', [user_id]);
   }
 }
 

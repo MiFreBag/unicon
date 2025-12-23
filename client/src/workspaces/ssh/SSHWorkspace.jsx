@@ -3,14 +3,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { listConnections, connectConnection, disconnectConnection, op } from '../../lib/api';
 import { Play, Square, Terminal, RefreshCw } from 'lucide-react';
 import { Terminal as XTerm } from 'xterm';
+import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 
 function makeWSUrl() {
-  // Try dev proxy first, then fallback to explicit ws port
+  const envUrl = import.meta?.env?.VITE_WS_URL;
+  const port = import.meta?.env?.VITE_WS_PORT || 8080;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  try { return `${proto}://${location.host}/ws`; } catch { /* ignore */ }
-  return `${proto}://localhost:8080`;
+  const sameOrigin = `${proto}://${location.host}/ws`;
+  const fallback = `ws://127.0.0.1:${port}`;
+  return envUrl || (location.protocol === 'https:' ? fallback : sameOrigin);
 }
 
 export default function SSHWorkspace() {
@@ -65,11 +68,12 @@ export default function SSHWorkspace() {
     const fit = new FitAddon();
     xterm.loadAddon(fit);
     xterm.open(termRef.current);
-    fit.fit();
+    // Defer fit until next frame to ensure renderer is initialized
+    requestAnimationFrame(() => { try { fit.fit(); } catch {} });
     xtermRef.current = xterm;
     fitRef.current = fit;
 
-    const onResize = () => { try { fit.fit(); } catch {} };
+    const onResize = () => { requestAnimationFrame(() => { try { fit.fit(); } catch {} }); };
     window.addEventListener('resize', onResize);
 
     // Send typed data to server when a session is active
@@ -177,6 +181,7 @@ export default function SSHWorkspace() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-end gap-3">
+        <ConnectionHeader connections={connections} selectedId={selectedId} status={status} />
         <div>
           <label className="block text-sm text-gray-600">SSH Connection</label>
           <select className="border rounded px-3 py-2 min-w-[16rem]" value={selectedId} onChange={e => setSelectedId(e.target.value)}>
@@ -222,6 +227,15 @@ export default function SSHWorkspace() {
         </div>
         <div className="text-xs text-gray-500 flex items-center">Status: {status}{sessionId ? ` • session ${sessionId.slice(0,8)}` : ''}</div>
       </div>
+    </div>
+  );
+}
+
+function ConnectionHeader({ connections, selectedId, status }) {
+  const sel = (connections || []).find(c => c.id === selectedId) || null;
+  return (
+    <div className="ml-auto">
+      <ConnectionBadge connection={sel || undefined} status={status} />
     </div>
   );
 }

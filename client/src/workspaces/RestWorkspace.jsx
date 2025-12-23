@@ -8,7 +8,11 @@ import {
   EyeOff,
   RefreshCw,
   Globe,
-  Clock
+  Clock,
+  Upload,
+  Link as LinkIcon,
+  Download,
+  CornerDownRight
 } from 'lucide-react';
 import Button from '../ui/Button.jsx';
 import Input from '../ui/Input.jsx';
@@ -29,9 +33,109 @@ const RestWorkspace = ({ connection }) => {
   const [customHeaders, setCustomHeaders] = useState([{ key: '', value: '' }]);
   const [showRawResponse, setShowRawResponse] = useState(false);
 
+  // OpenAPI + Schema state
+  const [openApiUrl, setOpenApiUrl] = useState('');
+  const [endpoints, setEndpoints] = useState([]); // [{ method, path, summary }]
+  const [specStatus, setSpecStatus] = useState('idle'); // idle|loading|loaded|error
+  const [schemaPreview, setSchemaPreview] = useState('');
+
+  // Post actions
+  const [postActions, setPostActions] = useState([]); // [{ type: 'download' } | { type: 'followup', method, endpoint }]
+
   const API_BASE = '/unicon/api';
 
   const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+
+  async function loadOpenApiFromUrl() {
+    if (!openApiUrl) return;
+    if (!connection || connection.status !== 'connected') {
+      alert('Nicht mit Server verbunden');
+      return;
+    }
+    setSpecStatus('loading');
+    try {
+      // Tell handler to load from URL
+      const res = await fetch(`${API_BASE}/operation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connectionId: connection.id,
+          operation: 'loadOpenApi',
+          params: { openApiUrl }
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || data?.success === false) throw new Error(data?.error || 'Load failed');
+      await refreshEndpoints();
+      setSpecStatus('loaded');
+    } catch (e) {
+      console.error(e);
+      setSpecStatus('error');
+      alert(e.message || 'Load failed');
+    }
+  }
+
+  async function uploadOpenApiFile(file) {
+    if (!file) return;
+    if (!connection || connection.status !== 'connected') { alert('Nicht mit Server verbunden'); return; }
+    setSpecStatus('loading');
+    try {
+      const fd = new FormData();
+      fd.append('openApiFile', file);
+      const up = await fetch(`${API_BASE}/upload-openapi`, { method: 'POST', body: fd });
+      const upData = await up.json();
+      if (!up.ok || upData?.success === false) throw new Error(upData?.error || 'Upload failed');
+      // Instruct handler to load the uploaded file by name
+      const res = await fetch(`${API_BASE}/operation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connectionId: connection.id, operation: 'loadOpenApi', params: { openApiFile: upData.filename || file.name } })
+      });
+      const data = await res.json();
+      if (!res.ok || data?.success === false) throw new Error(data?.error || 'Load failed');
+      await refreshEndpoints();
+      setSpecStatus('loaded');
+    } catch (e) {
+      console.error(e);
+      setSpecStatus('error');
+      alert(e.message || 'Upload failed');
+    }
+  }
+
+  async function refreshEndpoints(tag=null) {
+    if (!connection || connection.status !== 'connected') return;
+    try {
+      const res = await fetch(`${API_BASE}/operation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connectionId: connection.id, operation: 'getEndpoints', params: { tag } })
+      });
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.data?.endpoints)) {
+        setEndpoints(data.data.endpoints);
+      }
+    } catch (_) {}
+  }
+
+  function generateExampleFromSchema(schema, depth=0) {
+    if (!schema || depth>6) return null;
+    if (schema.example !== undefined) return schema.example;
+    if (schema.default !== undefined) return schema.default;
+    const t = schema.type;
+    if (t === 'object' || (schema.properties && !t)) {
+      const obj = {};
+      const props = schema.properties || {};
+      for (const k of Object.keys(props)) obj[k] = generateExampleFromSchema(props[k], depth+1);
+      return obj;
+    }
+    if (t === 'array' || schema.items) {
+      return [generateExampleFromSchema(schema.items || {}, depth+1)];
+    }
+    if (t === 'string') return (schema.enum?.[0]) || 'string';
+    if (t === 'number' || t === 'integer') return 0;
+    if (t === 'boolean') return true;
+    return null;
+  }
 
   const sendRequest = async () => {
     if (!connection || connection.status !== 'connected') {
@@ -81,6 +185,31 @@ const RestWorkspace = ({ connection }) => {
         
         // Add to history
         setRequestHistory(prev => [responseData, ...prev.slice(0, 49)]); // Keep last 50
+
+        // Run post actions (best-effort)
+        for (const act of postActions) {
+          try {
+            if (act.type === 'download') {
+              const blob = new Blob([JSON.stringify(responseData.data, null, 2)], { type: 'application/json' });
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = act.filename || 'response.json';
+              document.body.appendChild(a); a.click(); a.remove();
+            } else if (act.type === 'followup') {
+              const fr = await fetch(`${API_BASE}/operation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  connectionId: connection.id,
+                  operation: 'request',
+                  params: { method: act.method || 'GET', endpoint: act.endpoint || '/', data: null, headers: {} }
+                })
+              });
+              // ignore output; this is fire-and-forget for now
+              await fr.json().catch(()=>({}));
+            }
+          } catch (_) {}
+        }
       } else {
         throw new Error(result.error || 'Request failed');
       }
@@ -140,6 +269,8 @@ const RestWorkspace = ({ connection }) => {
 
   return (
     <div className="h-full flex flex-col">
+      {/* Connection in use */}
+      <div className="mb-3"><ConnectionBadge connection={connection} /></div>
       {/* Tab Navigation */}
       <div className="border-b border-gray-200 mb-6">
         <nav className="flex space-x-8">
@@ -164,8 +295,49 @@ const RestWorkspace = ({ connection }) => {
       {/* Request Tab */}
       {activeTab === 'request' && (
         <div className="flex-1 space-y-6">
+          {/* OpenAPI / Schema helpers */}
+          <div className="bg-gray-50 border rounded p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Upload size={14} />
+              <div className="text-sm font-medium">OpenAPI / Swagger</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-sm">Upload:</label>
+              <input type="file" accept=".json,.yaml,.yml" onChange={(e)=> e.target.files?.[0] && uploadOpenApiFile(e.target.files[0])} />
+              <span className="text-xs text-gray-500">{specStatus==='loaded' ? 'Spec loaded' : specStatus==='loading' ? 'Loading…' : ''}</span>
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <LinkIcon size={14} />
+              <input className="flex-1 border rounded px-2 py-1 text-sm" placeholder="https://host/openapi.json" value={openApiUrl} onChange={e=>setOpenApiUrl(e.target.value)} />
+              <Button size="sm" onClick={loadOpenApiFromUrl}>Load</Button>
+              <Button size="sm" variant="secondary" onClick={()=>refreshEndpoints()}>Refresh endpoints</Button>
+            </div>
+            {endpoints.length > 0 && (
+              <div className="mt-2 max-h-40 overflow-auto border rounded">
+                {endpoints.map((ep, i) => (
+                  <button key={i} className="w-full text-left px-2 py-1 hover:bg-gray-100 text-sm flex items-center gap-2" title={ep.summary||''} onClick={()=>{ setRequest(prev=>({ ...prev, method: ep.method, endpoint: ep.path })); setActiveTab('request'); }}>
+                    <span className="px-1 py-0.5 rounded text-[11px] font-mono bg-gray-200">{ep.method}</span>
+                    <span className="font-mono text-[12px]">{ep.path}</span>
+                    {ep.summary && <span className="text-xs text-gray-500">— {ep.summary}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2 mt-3">
+              <Upload size={14} />
+              <div className="text-sm font-medium">JSON Schema → Body</div>
+              <input type="file" accept=".json" onChange={async (e)=>{
+                const f = e.target.files?.[0]; if (!f) return; try { const txt = await f.text(); const obj = JSON.parse(txt); const sample = generateExampleFromSchema(obj); setSchemaPreview(JSON.stringify(sample, null, 2)); } catch (er) { alert('Invalid JSON schema'); }
+              }} />
+              {schemaPreview && <Button size="sm" onClick={()=> setRequest(prev=>({ ...prev, method: ['POST','PUT','PATCH'].includes(prev.method)?prev.method:'POST', body: schemaPreview }))}>Insert to body</Button>}
+            </div>
+            {schemaPreview && (
+              <pre className="mt-2 bg-gray-900 text-green-400 p-2 rounded text-xs max-h-40 overflow-auto">{schemaPreview}</pre>
+            )}
+          </div>
+
           {/* Request Line */}
-          <div className="flex space-x-3">
+          <div className="flex space-x-3 mt-4">
             <Select value={request.method} onChange={(e)=>setRequest(prev=>({...prev, method: e.target.value}))} className="w-32" aria-label="HTTP Method">
               {httpMethods.map(m => (<option key={m} value={m}>{m}</option>))}
             </Select>
@@ -221,6 +393,37 @@ const RestWorkspace = ({ connection }) => {
               </div>
             </div>
           )}
+          {/* Post actions */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-gray-700">Post actions</h4>
+              <div className="flex gap-2">
+                <Button size="sm" variant="secondary" onClick={()=> setPostActions(prev => [...prev, { type: 'download', filename: 'response.json' }])} leftEl={<Download size={14} className="mr-1"/>}>Save as file</Button>
+                <Button size="sm" variant="secondary" onClick={()=> setPostActions(prev => [...prev, { type: 'followup', method: 'GET', endpoint: '/' }])} leftEl={<CornerDownRight size={14} className="mr-1"/>}>Add follow-up</Button>
+              </div>
+            </div>
+            {postActions.length>0 && (
+              <div className="space-y-1">
+                {postActions.map((a, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm">
+                    <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-mono">{a.type}</span>
+                    {a.type==='download' && (
+                      <input className="border rounded px-2 py-1 text-xs" placeholder="filename" value={a.filename||''} onChange={e=> setPostActions(p=> p.map((x,j)=> j===i?{...x, filename:e.target.value}:x))} />
+                    )}
+                    {a.type==='followup' && (
+                      <>
+                        <select className="border rounded px-2 py-1 text-xs" value={a.method} onChange={e=> setPostActions(p=> p.map((x,j)=> j===i?{...x, method:e.target.value}:x))}>
+                          {httpMethods.map(m=> <option key={m} value={m}>{m}</option>)}
+                        </select>
+                        <input className="border rounded px-2 py-1 text-xs flex-1" placeholder="/path" value={a.endpoint} onChange={e=> setPostActions(p=> p.map((x,j)=> j===i?{...x, endpoint:e.target.value}:x))} />
+                      </>
+                    )}
+                    <button className="text-gray-400 hover:text-red-500" onClick={()=> setPostActions(p => p.filter((_,j)=> j!==i))}><Trash2 size={14}/></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

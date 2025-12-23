@@ -12,8 +12,9 @@ export default function AppProviders({ children }) {
       const sameOrigin = `${proto}://${location.host}/ws`;
       const envUrl = import.meta?.env?.VITE_WS_URL;
       const port = import.meta?.env?.VITE_WS_PORT || 8080;
-      const fallback = `ws://localhost:${port}`;
-      const wsUrl = envUrl || sameOrigin || fallback;
+      const fallback = `ws://127.0.0.1:${port}`;
+      // On HTTPS dev, fall back to direct ws:// backend to avoid self-signed proxy issues
+      const wsUrl = envUrl || (location.protocol === 'https:' ? fallback : sameOrigin);
       try {
         ws = new WebSocket(wsUrl);
       } catch (_) {

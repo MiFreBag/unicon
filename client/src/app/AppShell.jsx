@@ -67,6 +67,11 @@ export default function AppShell() {
     });
   }, [tabs]);
 
+  const closeAllTabs = useCallback(() => {
+    setTabs([]);
+    setActiveTabId(null);
+  }, []);
+
   const activateTab = useCallback((id) => setActiveTabId(id), []);
 
   // Persist tabs
@@ -100,8 +105,9 @@ export default function AppShell() {
     return <OAuthCallback />
   }
 
-  // Simple auth gate
-  const authed = !!getToken();
+  // Simple auth gate with optional dev bypass
+  const bypass = (import.meta?.env?.VITE_AUTH_BYPASS === '1');
+  const authed = bypass || !!getToken();
   if (!authed) {
     return <Login onLoggedIn={() => window.location.reload()} />;
   }
@@ -112,7 +118,7 @@ export default function AppShell() {
         <Sidebar onOpenWorkspace={openTab} activeTabKind={tabs.find(t => t.id === activeTabId)?.kind} />
         <div className="flex-1 flex flex-col">
           <Header onNewConnection={() => openTab('connections')} />
-          <TabStrip tabs={tabs} activeTabId={activeTabId} onClose={closeTab} onActivate={activateTab} />
+          <TabStrip tabs={tabs} activeTabId={activeTabId} onClose={closeTab} onCloseAll={closeAllTabs} onActivate={activateTab} />
           <ContentFrame tabs={tabs} activeTabId={activeTabId} registry={registry} />
         </div>
       </div>

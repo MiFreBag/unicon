@@ -1,11 +1,12 @@
 // client/src/layout/TabStrip.jsx
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, XOctagon } from 'lucide-react';
 
-export default function TabStrip({ tabs, activeTabId, onActivate, onClose }) {
+export default function TabStrip({ tabs, activeTabId, onActivate, onClose, onCloseAll }) {
   return (
-    <div className="h-10 border-b border-gray-200 bg-white px-2 flex items-end overflow-x-auto">
-      <div className="flex gap-1">
+    <div className="h-10 border-b border-gray-200 bg-white px-2 flex items-end">
+      {/* Scrollable tabs */}
+      <div className="flex gap-1 overflow-x-auto flex-1">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -24,6 +25,17 @@ export default function TabStrip({ tabs, activeTabId, onActivate, onClose }) {
           </button>
         ))}
       </div>
+      {/* Close all tabs button */}
+      {tabs.length > 0 && (
+        <button
+          className="ml-2 h-8 w-8 flex items-center justify-center rounded border border-gray-200 text-swarco-grey-700 hover:bg-gray-100"
+          title="Close all tabs"
+          aria-label="Close all tabs"
+          onClick={() => onCloseAll && onCloseAll()}
+        >
+          <XOctagon size={16} />
+        </button>
+      )}
     </div>
   );
 }

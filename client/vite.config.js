@@ -26,20 +26,22 @@ export default defineConfig(async () => {
       proxy: {
         // Proxy API calls during development to the local backend server
         '/unicon/api': {
-          target: 'http://localhost:3001',
+          target: 'http://127.0.0.1:3001',
           changeOrigin: true,
           secure: false
         },
         // Legacy alias if components use /api
         '/api': {
-          target: 'http://localhost:3001',
+          target: 'http://127.0.0.1:3001',
           changeOrigin: true,
           secure: false
         },
         '/ws': {
-          target: 'ws://localhost:8080',
+          // Use HTTP scheme for target; proxy handles WS upgrade when ws:true
+          target: 'http://127.0.0.1:8080',
           ws: true,
-          changeOrigin: true
+          changeOrigin: true,
+          secure: false
         }
       }
     },

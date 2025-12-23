@@ -37,7 +37,7 @@ export default function Sidebar({ onOpenWorkspace, activeTabKind }) {
       <div className="pt-4 border-t border-gray-200" />
       <div className="px-2 text-xs uppercase text-gray-500 tracking-wide">System</div>
       <div className="space-y-1">
-        <Item icon={Settings} label="Settings" onClick={() => {}} />
+        <Item iconName="gear" label="Settings" onClick={() => {}} />
       </div>
     </aside>
   );

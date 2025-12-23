@@ -19,6 +19,7 @@ import {
   Globe
 } from 'lucide-react';
 import Button from '../ui/Button.jsx';
+import ConnectionBadge from '../ui/ConnectionBadge.jsx';
 
 const CpdWorkspace = ({ connection }) => {
   const [activeTab, setActiveTab] = useState('topics');
@@ -367,34 +368,27 @@ const CpdWorkspace = ({ connection }) => {
   };
 
   // Handle incoming WebSocket messages
+  const handleWebSocketMessage = React.useCallback((message) => {
+    if (message.data?.payload?.type === 'topicChange') {
+      const topicChange = message.data.payload;
+      // Update subscription message count
+      setSubscriptions(prev => prev.map(sub =>
+        sub.id === topicChange.subscriptionId
+          ? { ...sub, messageCount: sub.messageCount + 1 }
+          : sub
+      ));
+      // Add received messages
+      topicChange.topics?.forEach(topicData => {
+        addMessage('received', 'Topic data received', topicData.topic, topicData.data);
+      });
+    }
+  }, [addMessage]);
+
   useEffect(() => {
     const onWs = (e) => handleWebSocketMessage(e.detail || {});
     window.addEventListener('unicon-ws', onWs);
     return () => window.removeEventListener('unicon-ws', onWs);
-  }, []);
-
-  useEffect(() => {
-    const handleWebSocketMessage = (message) => {
-      if (message.data?.payload?.type === 'topicChange') {
-        const topicChange = message.data.payload;
-        
-        // Update subscription message count
-        setSubscriptions(prev => prev.map(sub => 
-          sub.id === topicChange.subscriptionId 
-            ? { ...sub, messageCount: sub.messageCount + 1 }
-            : sub
-        ));
-        
-        // Add received messages
-        topicChange.topics?.forEach(topicData => {
-          addMessage('received', 'Topic data received', topicData.topic, topicData.data);
-        });
-      }
-    };
-    
-    // This would be connected to actual WebSocket events in real implementation
-    return () => {};
-  }, []);
+  }, [handleWebSocketMessage]);
 
   return (
     <div className="h-full flex flex-col">

@@ -1,11 +1,13 @@
 // client/src/auth/Login.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { KeyRound, Github, X } from 'lucide-react';
 import { apiPost } from '../lib/api';
 import { setToken } from '../lib/auth';
+import Modal from '../ui/Modal.jsx';
 
 export default function Login({ onLoggedIn }) {
   const [consent, setConsent] = useState({ open: false, provider: null, loading: false, error: '' });
+  const [info, setInfo] = useState({ open: false, kind: null, data: null, loading: false, error: '' });
   async function startProvider(p) {
     setConsent({ open: true, provider: p, loading: false, error: '' });
   }
@@ -24,6 +26,20 @@ export default function Login({ onLoggedIn }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Lazy-load server details when the modal opens
+  useEffect(() => {
+    if (info.open && info.kind === 'server' && !info.loading && !info.data && !info.error) {
+      setInfo(i => ({ ...i, loading: true }));
+      fetch('/unicon/api/health')
+        .then(r => r.json().catch(() => ({})).then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          if (!ok) throw new Error(d?.error || 'Failed to load server details');
+          setInfo(i => ({ ...i, data: d, loading: false }));
+        })
+        .catch(e => setInfo(i => ({ ...i, error: e.message || 'Failed to load server details', loading: false })));
+    }
+  }, [info.open, info.kind]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -67,7 +83,7 @@ export default function Login({ onLoggedIn }) {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="text-[16px] leading-6 font-semibold text-gray-700">Password</label>
-                    <button type="button" className="text-sm text-blue-700 hover:underline" onClick={async () => { try { await apiPost('/auth/forgot', { email: email || 'demo@unicon.local' }); alert('If the account exists, a reset link was sent (demo).'); } catch (e) { alert(e.message || 'Request failed'); } }}>Forgot password</button>
+                    <button type="button" className="text-sm text-blue-700 hover:underline" onClick={async () => { try { const r = await apiPost('/auth/forgot', { email: email || 'demo@unicon.local' }); if (r?.reset_url) { alert(`Reset link (demo): ${r.reset_url}`); } else { alert('If the account exists, a reset link was sent.'); } } catch (e) { alert(e.message || 'Request failed'); } }}>Forgot password</button>
                   </div>
                   <input type="password" className="w-full border rounded px-3 py-2 h-10" value={password} onChange={e=>setPassword(e.target.value)} required />
                 </div>
@@ -102,6 +118,15 @@ export default function Login({ onLoggedIn }) {
                       alert(e.message || 'Sign up failed');
                     }
                   }}>Sign up</button>
+                  {import.meta.env.DEV && (
+                    <button type="button" className="text-sm text-gray-600 hover:underline" onClick={() => {
+                      try {
+                        // Dev bypass: set a dummy token and roles, then continue
+                        setToken('dev-bypass', ['developer']);
+                      } catch (_) {}
+                      onLoggedIn?.();
+                    }}>Dev login (bypass)</button>
+                  )}
                 </div>
                 <div className="pt-2">
                   <label className="text-[16px] leading-6 font-semibold text-gray-700">Language</label>
@@ -111,11 +136,11 @@ export default function Login({ onLoggedIn }) {
                   </select>
                 </div>
                 <div className="text-xs text-gray-500 pt-6 flex items-center gap-2">
-                  <a className="hover:underline" href="#">Imprint</a>
+                  <a className="hover:underline" href="#" onClick={(e)=>{e.preventDefault(); setInfo({ open:true, kind:'imprint', data:null, loading:false, error:'' });}}>Imprint</a>
                   <span>•</span>
-                  <a className="hover:underline" href="#">Privacy Policy</a>
+                  <a className="hover:underline" href="#" onClick={(e)=>{e.preventDefault(); setInfo({ open:true, kind:'privacy', data:null, loading:false, error:'' });}}>Privacy Policy</a>
                   <span>•</span>
-                  <a className="hover:underline" href="#">Server Details</a>
+                  <a className="hover:underline" href="#" onClick={(e)=>{e.preventDefault(); setInfo({ open:true, kind:'server', data:null, loading:false, error:'' });}}>Server Details</a>
                   <span className="ml-auto opacity-80">© {new Date().getFullYear()} SWARCO</span>
                 </div>
               </form>
@@ -145,6 +170,53 @@ export default function Login({ onLoggedIn }) {
           </div>
         </div>
       )}
+
+      {/* Info modal: Imprint / Privacy Policy / Server Details */}
+      <Modal
+        open={info.open}
+        title={info.kind === 'imprint' ? 'Imprint' : info.kind === 'privacy' ? 'Privacy Policy' : info.kind === 'server' ? 'Server Details' : ''}
+        onClose={() => setInfo({ open:false, kind:null, data:null, loading:false, error:'' })}
+        footer={
+          <button className="px-4 h-10 rounded bg-gray-100" onClick={() => setInfo({ open:false, kind:null, data:null, loading:false, error:'' })}>Close</button>
+        }
+      >
+        {info.kind === 'imprint' && (
+          <div className="text-sm text-gray-700 space-y-2">
+            <p><strong>Company:</strong> SWARCO</p>
+            <p><strong>Address:</strong> [Add address]</p>
+            <p><strong>Contact:</strong> [Add contact email/phone]</p>
+            <p className="text-gray-500">This is placeholder text. Replace with your legal imprint details.</p>
+          </div>
+        )}
+        {info.kind === 'privacy' && (
+          <div className="text-sm text-gray-700 space-y-2">
+            <p><strong>Privacy Policy</strong></p>
+            <p>We process personal data for authentication and service provision. Replace this text with your actual policy or link to your public policy page.</p>
+          </div>
+        )}
+        {info.kind === 'server' && (
+          <div className="text-sm text-gray-700 space-y-2">
+            {info.loading && <div>Loading…</div>}
+            {info.error && <div className="text-red-600">{info.error}</div>}
+            {info.data && (
+              <div className="space-y-1">
+                {'version' in info.data && <div><strong>Version:</strong> {String(info.data.version)}</div>}
+                {'status' in info.data && <div><strong>Status:</strong> {String(info.data.status)}</div>}
+                {'timestamp' in info.data && <div><strong>Timestamp:</strong> {String(info.data.timestamp)}</div>}
+                {'uptime' in info.data && <div><strong>Uptime:</strong> {String(info.data.uptime)}</div>}
+                {'connectedClients' in info.data && <div><strong>Connected Clients:</strong> {String(info.data.connectedClients)}</div>}
+                {'activeConnections' in info.data && <div><strong>Active Connections:</strong> {String(info.data.activeConnections)}</div>}
+                {info.data && typeof info.data === 'object' && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer">Raw</summary>
+                    <pre className="bg-gray-50 p-2 rounded overflow-auto text-xs">{JSON.stringify(info.data, null, 2)}</pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { listConnections, connectConnection, disconnectConnection, op } from '../../lib/api';
 import { RefreshCw, Play, Square } from 'lucide-react';
+import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 
 export default function K8sWorkspace() {
   const [connections, setConnections] = useState([]);
@@ -124,6 +125,7 @@ export default function K8sWorkspace() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-end gap-3">
+        <ConnectionHeader connections={connections} selectedId={selectedId} status={status} />
         <div>
           <label className="block text-sm text-gray-600">Kubernetes Connection</label>
           <select className="border rounded px-3 py-2 min-w-[16rem]" value={selectedId} onChange={e => setSelectedId(e.target.value)}>
@@ -215,6 +217,15 @@ export default function K8sWorkspace() {
           <div className="text-xs text-gray-500 mt-1">Use Ctrl+Enter to send input to the container.</div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ConnectionHeader({ connections, selectedId, status }) {
+  const sel = (connections || []).find(c => c.id === selectedId) || null;
+  return (
+    <div className="ml-auto">
+      <ConnectionBadge connection={sel || undefined} status={status} />
     </div>
   );
 }

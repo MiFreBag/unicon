@@ -38,7 +38,19 @@ export default function Header({ onNewConnection }) {
             </button>
             <div className="hidden group-hover:block absolute right-0 mt-2 w-56 bg-white border rounded shadow">
               <div className="px-3 py-2 text-sm text-gray-700 border-b">{me?.email || 'Signed in'}</div>
-              <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={async ()=>{ const v = prompt('Language code (en/de):', 'en'); if(!v) return; try { await apiGet('/settings/language'); } catch (_){ } }}>
+              <div className="px-3 py-2 text-xs text-gray-500">Provider: {me?.provider || '—'}</div>
+              {me?.provider && (
+                <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={async ()=>{
+                  try {
+                    const token = localStorage.getItem('unicon_token_v1');
+                    await fetch(`/unicon/api/auth/oauth/${me.provider}`, { method: 'DELETE', headers: token ? { 'Authorization': `Bearer ${token}` } : {} });
+                    location.reload();
+                  } catch(_){}
+                }}>
+                  Disconnect {me.provider}
+                </button>
+              )}
+              <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={async ()=>{ const v = prompt('Language code (en/de):', 'en'); if(!v) return; try { await fetch('/unicon/api/settings/language', { method:'POST', headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('unicon_token_v1')?{ 'Authorization': `Bearer ${localStorage.getItem('unicon_token_v1')}` }: {}) }, body: JSON.stringify({ lang: v }) }); } catch (_){ } }}>
                 Language…
               </button>
               <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => { clearAuth(); location.replace('/unicon/'); }}>
