@@ -2,6 +2,7 @@
   "name": "unicon-workspace",
   "private": true,
   "version": "1.0.0",
+  "type": "module",
   "workspaces": [
     "client",
     "server"
@@ -14,8 +15,8 @@
     "unicon-server": "npm --prefix server run dev",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "lint:fix": "eslint . --ext js,jsx --fix",
+    "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "docker:build": "docker build -t universal-frontend .",
     "docker:run": "docker run -p 80:80 universal-frontend"

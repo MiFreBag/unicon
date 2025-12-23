@@ -8,7 +8,6 @@ const buildTestState = () => {
   process.env.CONNECTION_DATA_DIR = tempDir;
 
   jest.resetModules();
-  // eslint-disable-next-line global-require
   const { createApp, buildState } = require('../universal-server');
 
   return { createApp, buildState, tempDir };
