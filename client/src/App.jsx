@@ -1,11 +1,11 @@
 // src/App.jsx
-import UniversalTestClient from './components/UniversalTestClient'
+import ConnectionExperience from './components/ConnectionExperience'
 import './index.css'
 
 function App() {
   return (
-    <div className="App">
-      <UniversalTestClient />
+    <div className="App bg-gray-100 min-h-screen p-6">
+      <ConnectionExperience />
     </div>
   )
 }

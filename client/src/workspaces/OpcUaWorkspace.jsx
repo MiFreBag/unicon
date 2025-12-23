@@ -18,6 +18,8 @@ import {
   MessageSquare,
   Code,
   Save,
+  Download,
+  Upload,
   Trash2,
   ChevronRight,
   ChevronDown,
@@ -35,6 +37,8 @@ const UniversalTestClient = () => {
   const [logs, setLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const wsRef = useRef(null);
+  const connectionsFileInputRef = useRef(null);
+  const workspaceFileInputRef = useRef(null);
 
   // API Base URLs
   const API_BASE = '/unicon/api';
@@ -195,6 +199,146 @@ const UniversalTestClient = () => {
     } catch (error) {
       addLog(`Fehler beim Laden der Connections: ${error.message}`, 'error');
     }
+  };
+
+  const exportConnections = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/connections/export`);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP ${response.status}: ${text}`);
+      }
+
+      const payload = await response.json();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `connections-export-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+
+      URL.revokeObjectURL(url);
+      addLog(`Exportierte ${payload.connections?.length ?? 0} Connections`, 'success');
+    } catch (error) {
+      addLog(`Export fehlgeschlagen: ${error.message}`, 'error');
+    }
+  };
+
+  const exportWorkspace = () => {
+    try {
+      const payload = {
+        connections,
+        openTabs,
+        activeTab
+      };
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `workspace-export-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      addLog('Workspace exportiert', 'success');
+    } catch (error) {
+      addLog(`Workspace-Export fehlgeschlagen: ${error.message}`, 'error');
+    }
+  };
+
+  const handleConnectionsImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const incomingConnections = Array.isArray(parsed) ? parsed : parsed.connections;
+
+      if (!Array.isArray(incomingConnections)) {
+        throw new Error('Ungültiges Importformat');
+      }
+
+      const response = await fetch(`${API_BASE}/connections/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connections: incomingConnections })
+      });
+
+      if (!response.ok) {
+        const textResponse = await response.text();
+        throw new Error(`HTTP ${response.status}: ${textResponse}`);
+      }
+
+      const result = await response.json();
+      setConnections(result.connections || []);
+      setOpenTabs([]);
+      setActiveTab(null);
+      addLog(`Importierte ${result.count ?? result.connections?.length ?? 0} Connections`, 'success');
+    } catch (error) {
+      addLog(`Import fehlgeschlagen: ${error.message}`, 'error');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleWorkspaceImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const incomingConnections = parsed.connections || [];
+      const incomingTabs = parsed.openTabs || [];
+      const incomingActiveTab = parsed.activeTab || null;
+
+      const response = await fetch(`${API_BASE}/connections/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connections: incomingConnections })
+      });
+
+      if (!response.ok) {
+        const textResponse = await response.text();
+        throw new Error(`HTTP ${response.status}: ${textResponse}`);
+      }
+
+      const result = await response.json();
+      const importedConnections = result.connections || [];
+      setConnections(importedConnections);
+
+      const connectionMap = new Map(importedConnections.map(conn => [conn.id, conn]));
+      const restoredTabs = incomingTabs
+        .map(tab => {
+          const connection = connectionMap.get(tab.id);
+          if (!connection) return null;
+          return { ...connection, status: 'disconnected' };
+        })
+        .filter(Boolean);
+
+      setOpenTabs(restoredTabs);
+
+      const hasActiveTab = incomingActiveTab && connectionMap.has(incomingActiveTab);
+      const restoredActiveTab = hasActiveTab
+        ? incomingActiveTab
+        : restoredTabs[0]?.id || null;
+
+      setActiveTab(restoredActiveTab);
+      addLog(`Workspace importiert (${importedConnections.length} Connections)`, 'success');
+    } catch (error) {
+      addLog(`Workspace-Import fehlgeschlagen: ${error.message}`, 'error');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const triggerConnectionsImport = () => {
+    connectionsFileInputRef.current?.click();
+  };
+
+  const triggerWorkspaceImport = () => {
+    workspaceFileInputRef.current?.click();
   };
 
   const saveConnection = async (connectionData) => {
@@ -358,6 +502,50 @@ const UniversalTestClient = () => {
             <Plus size={16} className="mr-2" />
             Neue Connection
           </button>
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <button
+              onClick={exportWorkspace}
+              className="inline-flex items-center justify-center px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Download size={14} className="mr-2" />
+              Workspace Export
+            </button>
+            <button
+              onClick={triggerWorkspaceImport}
+              className="inline-flex items-center justify-center px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Upload size={14} className="mr-2" />
+              Workspace Import
+            </button>
+            <button
+              onClick={exportConnections}
+              className="inline-flex items-center justify-center px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Download size={14} className="mr-2" />
+              Connections Export
+            </button>
+            <button
+              onClick={triggerConnectionsImport}
+              className="inline-flex items-center justify-center px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Upload size={14} className="mr-2" />
+              Connections Import
+            </button>
+          </div>
+          <input
+            ref={workspaceFileInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={handleWorkspaceImport}
+          />
+          <input
+            ref={connectionsFileInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={handleConnectionsImport}
+          />
         </div>
 
         {/* Connections List */}

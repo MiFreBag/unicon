@@ -1,0 +1,51 @@
+version: '3.9'
+
+services:
+  traefik:
+    image: traefik:v2.10
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --api.dashboard=true
+    ports:
+      - '80:80'
+      - '8081:8080'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - proxy
+
+  server:
+    build: ./server
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.server.rule=PathPrefix(`/unicon/api`)
+      - traefik.http.routers.server.entrypoints=web
+      - traefik.http.services.server.loadbalancer.server.port=3001
+      - traefik.http.routers.server-ws.rule=PathPrefix(`/unicon/ws`)
+      - traefik.http.routers.server-ws.entrypoints=web
+      - traefik.http.routers.server-ws.service=server-ws
+      - traefik.http.services.server-ws.loadbalancer.server.port=8080
+    networks:
+      - proxy
+    environment:
+      - PORT=3001
+      - WS_PORT=8080
+      - ALLOWED_ORIGINS=http://localhost,http://localhost:80,http://127.0.0.1,http://127.0.0.1:80,http://localhost:4173,http://localhost:5174
+
+  client:
+    build: ./client
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.client.rule=PathPrefix(`/`)
+      - traefik.http.routers.client.entrypoints=web
+      - traefik.http.services.client.loadbalancer.server.port=80
+    depends_on:
+      - server
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    name: unicon_proxy
