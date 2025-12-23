@@ -874,7 +874,10 @@ const createApp = (state) => {
       let html = fs.readFileSync(file, 'utf8');
       // inject a tiny inline script with a nonce (for CSP verification in prod)
       const nonce = crypto.randomBytes(16).toString('base64');
-      res.setHeader('Content-Security-Policy', (res.getHeader('Content-Security-Policy')||'').toString().replace("script-src 'self'", `script-src 'self' 'nonce-${nonce}'`));
+      const current = (res.getHeader('Content-Security-Policy')||'').toString();
+      const updated = current.replace("script-src 'self'", `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`)
+                             .replace("style-src 'self' 'unsafe-inline'", "style-src 'self'");
+      res.setHeader('Content-Security-Policy', updated);
       html = html.replace('</head>', `<script nonce="${nonce}">window.__csp=1</script></head>`);
       res.setHeader('Content-Type','text/html');
       res.send(html);

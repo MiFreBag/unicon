@@ -156,7 +156,11 @@ class OPCUAHandler {
       DateTime: DataType.DateTime,
       ByteString: DataType.ByteString,
     };
-    let dataType = dt && map[dt] !== undefined ? map[dt] : undefined;
+    let dataType = undefined;
+    if (dt !== undefined && dt !== null) {
+      if (typeof dt === 'number') dataType = dt; // already a DataType id
+      else if (typeof dt === 'string' && map[dt] !== undefined) dataType = map[dt];
+    }
 
     // Infer when not provided
     if (dataType === undefined) {
@@ -167,6 +171,14 @@ class OPCUAHandler {
         else if (typeof first === 'boolean') dataType = DataType.Boolean;
         else dataType = DataType.String;
         return new Variant({ dataType, arrayType: VariantArrayType.Array, value: val });
+      }
+      // If string but numeric-like, coerce to number to match common scalar writes
+      if (typeof val === 'string') {
+        const maybe = Number(val);
+        if (Number.isFinite(maybe)) {
+          dataType = Number.isInteger(maybe) ? DataType.Int32 : DataType.Double;
+          return new Variant({ dataType, value: maybe });
+        }
       }
       switch (typeof val) {
         case 'number':
@@ -185,22 +197,7 @@ class OPCUAHandler {
     // Respect explicit dataType, support arrays with element coercion
     if (Array.isArray(val)) {
       const coercedArr = val.map(v => this._coerceJs(v, dataType));
-      // For numeric array types, use TypedArrays to satisfy node-opcua encoders
-      const toTyped = (arr, dt) => {
-        switch (dt) {
-          case DataType.Int16: return Int16Array.from(arr);
-          case DataType.Int32: return Int32Array.from(arr);
-          case DataType.Int64: return BigInt64Array.from(arr.map(x => BigInt(Math.trunc(x))));
-          case DataType.UInt16: return Uint16Array.from(arr);
-          case DataType.UInt32: return Uint32Array.from(arr);
-          case DataType.UInt64: return BigUint64Array.from(arr.map(x => BigInt(Math.trunc(x))));
-          case DataType.Float: return Float32Array.from(arr);
-          case DataType.Double: return Float64Array.from(arr);
-          default: return arr;
-        }
-      };
-      const typed = toTyped(coercedArr, dataType);
-      return new Variant({ dataType, arrayType: VariantArrayType.Array, value: typed });
+      return new Variant({ dataType, arrayType: VariantArrayType.Array, value: coercedArr });
     }
     const coerced = this._coerceJs(val, dataType);
     return new Variant({ dataType, value: coerced });

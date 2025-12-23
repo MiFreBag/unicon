@@ -17,7 +17,7 @@ export default function Header({ onNewConnection }) {
         <img src="/unicon/brand/swarco.svg" alt="Swarco" className="h-6" />
         <div className="font-semibold text-swarco-grey-900">Unicon</div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 relative">
         <Button variant="secondary" size="md" leftEl={<Icon name="plus" size={16} className="mr-2"/>} onClick={onNewConnection}>New Connection</Button>
         <Tooltip text="Help">
           <button className="p-2 text-swarco-grey-800 hover:text-swarco-grey-900" aria-label="Help">
@@ -32,11 +32,20 @@ export default function Header({ onNewConnection }) {
               {me?.email ? me.email[0]?.toUpperCase() : '?'}
             </div>
           )}
-          <Tooltip text="Logout">
-            <button className="p-2 text-swarco-grey-800 hover:text-swarco-grey-900" onClick={() => { clearAuth(); location.replace('/unicon/'); }}>
-              <Icon name="arrow-right-from-bracket" size={18} />
+          <div className="group relative">
+            <button className="p-2 text-swarco-grey-800 hover:text-swarco-grey-900" aria-haspopup="menu">
+              <Icon name="chevron-down" size={16} />
             </button>
-          </Tooltip>
+            <div className="hidden group-hover:block absolute right-0 mt-2 w-56 bg-white border rounded shadow">
+              <div className="px-3 py-2 text-sm text-gray-700 border-b">{me?.email || 'Signed in'}</div>
+              <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={async ()=>{ const v = prompt('Language code (en/de):', 'en'); if(!v) return; try { await apiGet('/settings/language'); } catch (_){ } }}>
+                Language…
+              </button>
+              <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => { clearAuth(); location.replace('/unicon/'); }}>
+                Logout
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </header>

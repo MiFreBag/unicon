@@ -1,0 +1,17 @@
+{
+  "connections": [
+    {
+      "id": "2fc6bb0b-8339-41ac-9fd0-66af1f0f9f5d",
+      "name": "grpc-local",
+      "type": "grpc",
+      "config": {
+        "address": "127.0.0.1:64148",
+        "proto": "test.proto",
+        "package": "test",
+        "service": "Echo"
+      },
+      "createdAt": "2025-12-23T12:58:27.534Z",
+      "status": "connected"
+    }
+  ]
+}

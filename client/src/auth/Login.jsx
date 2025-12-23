@@ -1,10 +1,25 @@
 // client/src/auth/Login.jsx
 import React, { useState } from 'react';
-import { KeyRound, Github } from 'lucide-react';
+import { KeyRound, Github, X } from 'lucide-react';
 import { apiPost } from '../lib/api';
 import { setToken } from '../lib/auth';
 
 export default function Login({ onLoggedIn }) {
+  const [consent, setConsent] = useState({ open: false, provider: null, loading: false, error: '' });
+  async function startProvider(p) {
+    setConsent({ open: true, provider: p, loading: false, error: '' });
+  }
+  async function continueProvider() {
+    setConsent(c => ({ ...c, loading: true, error: '' }));
+    try {
+      const res = await fetch(`/unicon/api/oauth/${consent.provider}/init`);
+      const data = await res.json();
+      if (!res.ok || !data?.continue_url) throw new Error(data?.error || 'Init failed');
+      location.href = data.continue_url;
+    } catch (e) {
+      setConsent(c => ({ ...c, loading: false, error: e.message || 'Init failed' }));
+    }
+  }
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -67,13 +82,13 @@ export default function Login({ onLoggedIn }) {
                     <KeyRound size={18} aria-hidden="true" />
                   </button>
                   {/* Google */}
-<button type="button" aria-label="Sign in with Google" title="Sign in with Google" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => { location.href = '/unicon/oauth/consent?provider=google'; }}>
+                  <button type="button" aria-label="Sign in with Google" title="Sign in with Google" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => startProvider('google')}>
                     <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
                       <path fill="#EA4335" d="M12 11.9999v3.8h5.3c-.2 1.2-1.4 3.5-5.3 3.5-3.2 0-5.9-2.6-5.9-5.9s2.7-5.9 5.9-5.9c1.8 0 3 .7 3.7 1.3l2.5-2.4C16.7 4.2 14.6 3.3 12 3.3 6.9 3.3 2.8 7.4 2.8 12.5S6.9 21.7 12 21.7c6.9 0 9.5-4.8 9.5-7.2 0-.5-.1-.8-.1-1.1H12z"/>
                     </svg>
                   </button>
                   {/* GitHub */}
-<button type="button" aria-label="Sign in with GitHub" title="Sign in with GitHub" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => { location.href = '/unicon/oauth/consent?provider=github'; }}>
+                  <button type="button" aria-label="Sign in with GitHub" title="Sign in with GitHub" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => startProvider('github')}>
                     <Github size={18} aria-hidden="true" />
                   </button>
                   <button type="submit" disabled={loading} className="w-48 h-10 bg-[#004b8d] text-white rounded hover:bg-[#003a6c] disabled:opacity-50">
@@ -113,6 +128,23 @@ export default function Login({ onLoggedIn }) {
       <div className="hidden md:block md:w-1/2 relative">
         <img src="/unicon/brand/background-image.png" alt="Background" className="absolute inset-0 w-full h-full object-cover"/>
       </div>
+      {/* Modal consent */}
+      {consent.open && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg border bg-white p-6 shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-semibold text-gray-900">Continue with {consent.provider}</div>
+              <button className="p-1" aria-label="Close" onClick={()=>setConsent({ open:false, provider:null, loading:false, error:'' })}><X size={18}/></button>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">You will be redirected to {consent.provider} to continue.</p>
+            {consent.error && <div className="text-sm text-red-600 mb-2">{consent.error}</div>}
+            <div className="flex gap-2">
+              <button className="px-4 h-10 rounded bg-[#004b8d] text-white disabled:opacity-50" disabled={consent.loading} onClick={continueProvider}>{consent.loading ? 'Continuing…' : 'Continue'}</button>
+              <button className="px-4 h-10 rounded bg-gray-100" onClick={()=>setConsent({ open:false, provider:null, loading:false, error:'' })}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
