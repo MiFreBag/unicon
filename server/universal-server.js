@@ -17,13 +17,22 @@ const OPCUAHandler = require('./handlers/opcua_handler');
 const GrpcHandler = require('./handlers/grpc_handler');
 
 const DEFAULT_ALLOWED_ORIGINS = [
+  // HTTP dev
   'http://localhost',
   'http://localhost:80',
   'http://localhost:4173',
   'http://localhost:5174',
-  'http://10.1.3.231:5174',
   'http://127.0.0.1',
-  'http://127.0.0.1:80'
+  'http://127.0.0.1:80',
+  'http://127.0.0.1:5174',
+  // HTTPS dev (Vite with basic-ssl)
+  'https://localhost',
+  'https://localhost:443',
+  'https://localhost:4173',
+  'https://localhost:5174',
+  'https://127.0.0.1',
+  'https://127.0.0.1:443',
+  'https://127.0.0.1:5174'
 ];
 
 const PORT = process.env.PORT || 3001;
@@ -542,6 +551,8 @@ const createApp = (state) => {
           case 'send': {
             const { message } = params;
             const result = await h.send(message);
+            // Ensure a broadcast is emitted even if handler-level broadcast was not yet attached
+            global.broadcast && global.broadcast({ type: 'ws', data: { event: 'message', connectionId, data: typeof message==='string'?message:JSON.stringify(message), source: 'router' } });
             return res.json(result);
           }
           default:

@@ -80,7 +80,21 @@ class OPCUAHandler {
     const variant = this._coerceVariant(value, dt);
     const statusCode = await this.session.writeSingleNode(nodeId, variant);
     const scStr = statusCode?.name || String(statusCode || '');
-    const ok = !!statusCode && (statusCode.value === 0 || scStr.includes('Good'));
+    let ok = !!statusCode && (statusCode.value === 0 || scStr.includes('Good'));
+
+    // Fallback: element-wise writes for arrays when server rejects typed arrays
+    if (!ok && Array.isArray(value)) {
+      const writes = value.map((el, i) => ({
+        nodeId,
+        attributeId: AttributeIds.Value,
+        indexRange: String(i),
+        value: { value: this._coerceVariant(el, dataType) }
+      }));
+      const results = await this.session.write(writes);
+      ok = Array.isArray(results) && results.every(rc => rc && (rc.value === 0 || (rc.name||'').includes('Good')));
+      return { success: ok, statusCodes: results.map(r => r?.name || String(r||'')) };
+    }
+
     return { success: ok, statusCode: scStr };
   }
 

@@ -19,6 +19,7 @@ import Login from '../auth/Login.jsx';
 import { getToken, clearAuth } from '../lib/auth';
 
 import OAuthCallback from '../auth/OAuthCallback.jsx';
+import ResetPassword from '../auth/ResetPassword.jsx';
 export default function AppShell() {
   // Registry of workspaces available to open in tabs
   const registry = useMemo(() => ({
@@ -88,6 +89,11 @@ export default function AppShell() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [activeTabId, closeTab]);
+
+  // Handle Reset Password route
+  if (typeof window !== 'undefined' && window.location.pathname.endsWith('/auth/reset')) {
+    return <ResetPassword />
+  }
 
   // Handle OAuth callback route
   if (typeof window !== 'undefined' && window.location.pathname.endsWith('/auth/callback')) {

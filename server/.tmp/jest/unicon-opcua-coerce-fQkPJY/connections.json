@@ -1,0 +1,14 @@
+{
+  "connections": [
+    {
+      "id": "f2c3bfd3-ed99-43ae-ba29-75baeeba9711",
+      "name": "opcua",
+      "type": "opcua",
+      "config": {
+        "endpointUrl": "opc.tcp://127.0.0.1:57281"
+      },
+      "createdAt": "2025-12-23T13:50:29.204Z",
+      "status": "connected"
+    }
+  ]
+}
