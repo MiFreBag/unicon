@@ -6,7 +6,7 @@
     "client",
     "server"
   ],
-    "scripts": {
+  "scripts": {
     "tag": "standard-version && npm run update-remote && git push --follow-tags origin main && npm publish",
     "dev:all": "concurrently -n unicon-client,unicon-server -c green,blue \"npm:unicon-client\" \"npm:unicon-server\"",
     "server": "node server/index.js",
@@ -19,7 +19,8 @@
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "docker:build": "docker build -t universal-frontend .",
     "docker:run": "docker run -p 80:80 universal-frontend"
+  },
+  "dependencies": {
+    "concurrently": "^9.1.2"
   }
-
 }
-
