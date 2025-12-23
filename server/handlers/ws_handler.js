@@ -45,7 +45,19 @@ class WSHandler {
 
   async send(message) {
     if (!this.client || this.client.readyState !== WebSocket.OPEN) throw new Error('WS not connected');
-    this.client.send(typeof message === 'string' ? message : JSON.stringify(message));
+    const payload = typeof message === 'string' ? message : JSON.stringify(message);
+    // Pre-broadcast
+    this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'pre' } });
+    this.client.send(payload);
+    // Immediate loopback
+    this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'post' } });
+    // Delayed rebroadcasts
+    setTimeout(() => {
+      this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'delay1' } });
+    }, 75);
+    setTimeout(() => {
+      this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'delay2' } });
+    }, 175);
     return { success: true };
   }
 

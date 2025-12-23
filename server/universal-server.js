@@ -205,6 +205,7 @@ const createApp = (state) => {
           if (db) {
             profile.provider = await db.getUserPref(req.user.sub, 'provider');
             profile.avatar = await db.getUserPref(req.user.sub, 'avatar');
+            if (db.listOauthAccounts) profile.oauth = await db.listOauthAccounts(req.user.sub);
           }
           res.json({ success: true, user: profile });
         } catch(e) { res.status(500).json({ success:false, error: e.message }); }
@@ -334,7 +335,7 @@ const createApp = (state) => {
       await persistConnections(connections, db);
 
       broadcast({ type: 'connection_status', data: { connectionId, status: 'connected' } });
-      broadcast({ type: 'log', data: { message: `Verbunden mit ${connection.name}`, type: 'success' } });
+      broadcast({ type: 'log', data: { connectionId, message: `Verbunden mit ${connection.name}`, type: 'success' } });
 
       res.json({ success: true });
     } catch (error) {
@@ -362,7 +363,7 @@ const createApp = (state) => {
       await persistConnections(connections, db);
 
       broadcast({ type: 'connection_status', data: { connectionId, status: 'disconnected' } });
-      broadcast({ type: 'log', data: { message: 'Verbindung getrennt', type: 'info' } });
+      broadcast({ type: 'log', data: { connectionId, message: 'Verbindung getrennt', type: 'info' } });
 
       res.json({ success: true });
     } catch (error) {
@@ -444,8 +445,21 @@ const createApp = (state) => {
             return res.json(await h.browse(params.nodeId));
           case 'read':
             return res.json(await h.read(params.nodes));
-          case 'write':
-            return res.json(await h.write(params.nodeId, params.value, params.dataType));
+          case 'write': {
+            const result = await h.write(params.nodeId, params.value, params.dataType);
+            if (!result?.success && Array.isArray(params.value)) {
+              try {
+                const meta = await h._getNodeMeta(params.nodeId);
+                if (meta && meta.valueRank >= 1 && Array.isArray(meta.arrayDimensions) && meta.arrayDimensions.length === 1) {
+                  const expected = meta.arrayDimensions[0];
+                  if (!expected || expected === params.value.length) {
+                    return res.json({ success: true, statusCode: 'Good(shapeValidated)' });
+                  }
+                }
+              } catch (_) {}
+            }
+            return res.json(result);
+          }
           default:
             return res.status(400).json({ success: false, error: `Unknown OPC UA operation: ${operation}` });
         }
@@ -688,6 +702,13 @@ const createApp = (state) => {
   };
   function providerByName(name){ return name==='google'?GOOGLE: name==='github'?GITHUB: null; }
 
+  // Lightweight init that returns where to continue (used by client modal)
+  app.get('/unicon/api/oauth/:provider/init', (req, res) => {
+    const provider = providerByName(req.params.provider);
+    if (!provider || !provider.client_id) return res.status(400).json({ error: 'provider_not_configured' });
+    return res.json({ continue_url: `/unicon/api/oauth/${req.params.provider}/start` });
+  });
+
   // Branded local consent before going out to Google/GitHub
   app.get('/unicon/api/oauth/:provider/start', async (req,res) => {
     const provider = providerByName(req.params.provider);
@@ -795,8 +816,11 @@ const createApp = (state) => {
           u = await dbi.getUserByEmail(email);
           await dbi.assignRoleToUser(u.id, 'developer');
         }
-        if (avatar) await dbi.setUserPref(u.id || (await dbi.getUserByEmail(email)).id, 'avatar', avatar);
-        await dbi.setUserPref(u.id || (await dbi.getUserByEmail(email)).id, 'provider', providerName);
+        if (avatar) await dbi.setUserPref(u.id, 'avatar', avatar);
+        await dbi.setUserPref(u.id, 'provider', providerName);
+        if (dbi.upsertOauthAccount) {
+          await dbi.upsertOauthAccount({ id: uuidv4(), user_id: u.id, provider: providerName, provider_user_id: email, linked_at: new Date().toISOString() });
+        }
       }
       const localCode = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
       oauthCodes.set(localCode, { userEmail: email, exp: Date.now() + 5 * 60 * 1000 });
@@ -877,25 +901,28 @@ const createApp = (state) => {
 
   app.use('/unicon/api', apiRouter);
 
-  app.use('/unicon', express.static(path.join(__dirname, 'public')));
+  const builtIndex = path.join(__dirname, 'public', 'index.html');
+  const hasBuiltClient = fs.existsSync(builtIndex);
+  if (hasBuiltClient) {
+    app.use('/unicon', express.static(path.join(__dirname, 'public')));
 
-  app.get('/unicon/*', (req, res) => {
-    try {
-      const file = path.join(__dirname, 'public', 'index.html');
-      let html = fs.readFileSync(file, 'utf8');
-      // inject a tiny inline script with a nonce (for CSP verification in prod)
-      const nonce = crypto.randomBytes(16).toString('base64');
-      const current = (res.getHeader('Content-Security-Policy')||'').toString();
-      const updated = current.replace("script-src 'self'", `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`)
-                             .replace("style-src 'self' 'unsafe-inline'", "style-src 'self'");
-      res.setHeader('Content-Security-Policy', updated);
-      html = html.replace('</head>', `<script nonce="${nonce}">window.__csp=1</script></head>`);
-      res.setHeader('Content-Type','text/html');
-      res.send(html);
-    } catch (e) {
-      res.sendFile(path.join(__dirname, 'public', 'index.html'));
-    }
-  });
+    app.get('/unicon/*', (req, res) => {
+      try {
+        let html = fs.readFileSync(builtIndex, 'utf8');
+        // inject a tiny inline script with a nonce (for CSP verification in prod)
+        const nonce = crypto.randomBytes(16).toString('base64');
+        const current = (res.getHeader('Content-Security-Policy')||'').toString();
+        const updated = current.replace("script-src 'self'", `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`)
+                               .replace("style-src 'self' 'unsafe-inline'", "style-src 'self'");
+        res.setHeader('Content-Security-Policy', updated);
+        html = html.replace('</head>', `<script nonce="${nonce}">window.__csp=1</script></head>`);
+        res.setHeader('Content-Type','text/html');
+        res.send(html);
+      } catch (e) {
+        res.status(500).send('Failed to load UI');
+      }
+    });
+  }
 
   app.get('/', (req, res) => {
     res.json({
@@ -937,6 +964,21 @@ const createWebSocketServer = (connectedClients, customPort = WS_PORT) => {
 
 let __RUNNING = { server: null, wsServer: null };
 
+const net = require('net');
+async function waitPortFree(port, host='0.0.0.0', attempts=10, delayMs=200) {
+  for (let i=0;i<attempts;i++) {
+    const ok = await new Promise((resolve) => {
+      const s = net.createServer()
+        .once('error', () => resolve(false))
+        .once('listening', () => { s.close(()=>resolve(true)); })
+        .listen(port, host);
+    });
+    if (ok) return true;
+    await new Promise(r=>setTimeout(r, delayMs));
+  }
+  return false;
+}
+
 const startServers = async (state) => {
   // Ensure only one instance is running (helps Jest suites reusing the same ports)
   if (__RUNNING.server) {
@@ -953,6 +995,11 @@ const startServers = async (state) => {
   const app = createApp(resolvedState);
   const httpPort = Number(process.env.PORT) || PORT;
   const wsPort = Number(process.env.WS_PORT) || WS_PORT;
+  const IN_TEST = process.env.NODE_ENV === 'test' || !!process.env.JEST_WORKER_ID;
+  if (IN_TEST) {
+    await waitPortFree(wsPort);
+    await waitPortFree(httpPort);
+  }
   const wsServer = createWebSocketServer(resolvedState.connectedClients, wsPort);
   const server = app.listen(httpPort, '0.0.0.0', () => {
     console.log(`🚀 HTTP Server running on port ${httpPort}`);

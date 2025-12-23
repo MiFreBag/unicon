@@ -5,3 +5,4 @@ node_modules/
 client/dist/
 server/data/
 58_UNICON.code-workspace
+server/.tmp/
