@@ -39,8 +39,12 @@ class OPCUAHandler {
     const timed = new Promise((_, reject) => setTimeout(() => reject(new Error('OPC UA connect timeout')), timeoutMs));
     await Promise.race([connectPromise, timed]);
 
-    const identity = this._buildIdentity(this.config.userIdentity) || (this.config.username ? { type: 'UserName', userName: this.config.username, password: this.config.password || '' } : null);
-    const session = await client.createSession(identity || undefined);
+    // Prefer simple username/password form (avoids token-type issues across node-opcua versions)
+    const ui = this.config.userIdentity || {};
+    const userName = (ui.userName ?? ui.username ?? this.config.username) || undefined;
+    const password = (ui.password ?? this.config.password) || undefined;
+    const session = userName ? await client.createSession({ userName, password })
+                             : await client.createSession();
 
     this.client = client;
     this.session = session;
