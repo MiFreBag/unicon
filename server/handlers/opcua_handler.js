@@ -13,7 +13,7 @@ class OPCUAHandler {
   }
 
   async connect() {
-    const endpointUrl = this.config.endpointUrl;
+    const endpointUrl = this.config.endpointUrl || this.config.endpoint;
     if (!endpointUrl) throw new Error('OPC UA endpointUrl is required');
 
     const modeMap = { None: MessageSecurityMode.None, Sign: MessageSecurityMode.Sign, SignAndEncrypt: MessageSecurityMode.SignAndEncrypt };
@@ -30,20 +30,17 @@ class OPCUAHandler {
       securityMode: modeMap[this.config.securityMode] ?? MessageSecurityMode.None,
       securityPolicy: polMap[this.config.securityPolicy] ?? SecurityPolicy.None,
       endpointMustExist: false,
+      keepSessionAlive: true,
       connectionStrategy: { initialDelay: 250, maxRetry: 1 }
     });
 
-    const timeoutMs = Number(this.config.timeoutMs || 5000);
+    const timeoutMs = Number(this.config.timeoutMs || 10000);
     const connectPromise = client.connect(endpointUrl);
     const timed = new Promise((_, reject) => setTimeout(() => reject(new Error('OPC UA connect timeout')), timeoutMs));
     await Promise.race([connectPromise, timed]);
 
-    let session;
-    if (this.config.username) {
-      session = await client.createSession({ userName: this.config.username, password: this.config.password || '' });
-    } else {
-      session = await client.createSession();
-    }
+    const identity = this._buildIdentity(this.config.userIdentity) || (this.config.username ? { type: 'UserName', userName: this.config.username, password: this.config.password || '' } : null);
+    const session = await client.createSession(identity || undefined);
 
     this.client = client;
     this.session = session;
@@ -229,6 +226,18 @@ class OPCUAHandler {
     }
     const coerced = this._coerceJs(val, dataType);
     return new Variant({ dataType, value: coerced });
+  }
+
+  _buildIdentity(userIdentity) {
+    if (!userIdentity) return null;
+    const t = String(userIdentity.type || '').toLowerCase();
+    if (t === 'username') {
+      const userName = userIdentity.userName ?? userIdentity.username ?? '';
+      const password = userIdentity.password ?? '';
+      return { type: 'UserName', userName, password };
+    }
+    if (t === 'anonymous' || !t) return null;
+    return null;
   }
 
   _coerceJs(val, dataType) {
