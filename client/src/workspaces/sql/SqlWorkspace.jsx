@@ -7,7 +7,7 @@ import Input from '../../ui/Input.jsx';
 import Spinner from '../../ui/Spinner.jsx';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 
-export default function SqlWorkspace() {
+export default function SqlWorkspace({ connectionId: initialConnectionId }) {
   const [connections, setConnections] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [status, setStatus] = useState('disconnected');
@@ -19,6 +19,11 @@ export default function SqlWorkspace() {
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // sort & filter
+  const [sortBy, setSortBy] = useState(null); // column name
+  const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
+  const [filters, setFilters] = useState({}); // { col: text }
+
   const [page, setPage] = useState(1);
   const pageSize = 100;
 
@@ -28,10 +33,12 @@ export default function SqlWorkspace() {
     (async () => {
       const res = await listConnections();
       setConnections(res.connections || []);
-      const first = (res.connections || []).find(c => c.type === 'sql');
+      const list = (res.connections || []).filter(c => c.type === 'sql');
+      const preferred = list.find(c => c.id === initialConnectionId);
+      const first = preferred || list[0];
       if (first) { setSelectedId(first.id); setDriver(first.config?.driver || 'sqlite'); }
     })();
-  }, []);
+  }, [initialConnectionId]);
 
   async function onConnect() {
     if (!selectedId) return;
@@ -78,12 +85,38 @@ export default function SqlWorkspace() {
     } finally { setLoading(false); }
   }
 
+  const filteredSorted = useMemo(() => {
+    let r = rows;
+    // filter
+    const keys = Object.keys(filters || {});
+    if (keys.length) {
+      r = r.filter(row => keys.every(k => {
+        const f = (filters[k] || '').toString().trim(); if (!f) return true;
+        const v = row[k];
+        return String(v ?? '').toLowerCase().includes(f.toLowerCase());
+      }));
+    }
+    // sort
+    if (sortBy) {
+      const dir = sortDir === 'desc' ? -1 : 1;
+      r = [...r].sort((a,b) => {
+        const va = a?.[sortBy]; const vb = b?.[sortBy];
+        if (va == null && vb == null) return 0;
+        if (va == null) return -1*dir; if (vb == null) return 1*dir;
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+        const sa = String(va); const sb = String(vb);
+        return sa.localeCompare(sb) * dir;
+      });
+    }
+    return r;
+  }, [rows, filters, sortBy, sortDir]);
+
   const pageRows = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return rows.slice(start, start + pageSize);
-  }, [rows, page]);
-  const columns = useMemo(() => rows.length ? Object.keys(rows[0]) : [], [rows]);
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    return filteredSorted.slice(start, start + pageSize);
+  }, [filteredSorted, page]);
+  const columns = useMemo(() => filteredSorted.length ? Object.keys(filteredSorted[0]) : [], [filteredSorted]);
+  const totalPages = Math.max(1, Math.ceil(filteredSorted.length / pageSize));
 
   return (
     <div className="flex flex-col gap-4">
@@ -141,7 +174,27 @@ export default function SqlWorkspace() {
           <div className="overflow-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
-                <tr>{columns.map(col => (<th key={col} className="text-left px-3 py-2 border-b font-medium">{col}</th>))}</tr>
+                <tr>
+                  {columns.map(col => (
+                    <th key={col} className="text-left px-3 py-2 border-b font-medium">
+                      <button className="inline-flex items-center gap-1" onClick={()=>{
+                        if (sortBy === col) setSortDir(d => d==='asc' ? 'desc' : 'asc'); else { setSortBy(col); setSortDir('asc'); }
+                      }}>
+                        {col}
+                        {sortBy === col && <span className="text-xs opacity-60">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </button>
+                    </th>
+                  ))}
+                </tr>
+                {/* filters row */}
+                <tr>
+                  {columns.map(col => (
+                    <th key={col} className="px-3 pb-2 border-b">
+                      <input className="w-full border rounded px-2 py-1 text-xs" placeholder="filter" value={filters[col]||''}
+                             onChange={e=>{ const v=e.target.value; setFilters(prev=>({ ...prev, [col]: v })); setPage(1); }} />
+                    </th>
+                  ))}
+                </tr>
               </thead>
               <tbody>
                 {pageRows.map((r, i) => (

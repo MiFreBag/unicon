@@ -5,9 +5,9 @@
   "main": "universal-server.js",
   "scripts": {
     "start": "node universal-server.js",
-    "dev": "cross-env FEATURE_AUTH=1 AUTH_ENFORCE=0 PORT=3001 WS_PORT=8080 nodemon universal-server.js",
-"pretest": "node -e \"require('fs').mkdirSync('./.tmp/jest',{recursive:true})\"",
-    "test": "cross-env NODE_ENV=test TMP=./.tmp/jest TEMP=./.tmp/jest PORT=3101 WS_PORT=8180 jest --runInBand --config jest.config.js --no-cache",
+    "dev": "cross-env FEATURE_AUTH=1 AUTH_ENFORCE=0 ENABLE_CSP=0 PORT=3001 WS_PORT=8080 nodemon universal-server.js",
+"pretest": "node -e \"require('fs').mkdirSync('./.tmp/jest',{recursive:true});require('fs').mkdirSync('./.tmp/npm-cache',{recursive:true})\"",
+    "test": "cross-env NODE_ENV=test NPM_CONFIG_CACHE=./.tmp/npm-cache TMP=./.tmp/jest TEMP=./.tmp/jest PORT=3101 WS_PORT=8180 jest --runInBand --config jest.config.js --no-cache",
     "setup": "npm install && node setup.js"
   },
   "keywords": [

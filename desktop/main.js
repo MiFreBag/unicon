@@ -3,7 +3,7 @@
 
 const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
-const isDev = require('electron-is-dev');
+const isDev = !app.isPackaged;
 
 let mainWindow;
 

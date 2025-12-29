@@ -3,8 +3,9 @@ import React, { useState } from 'react';
 import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
 
-export default function GrpcWorkspace() {
+export default function GrpcWorkspace({ connectionId: initialConnectionId }) {
   const [address, setAddress] = useState('localhost:50051');
+  const [selectedId] = useState(initialConnectionId || null);
   const [proto, setProto] = useState('');
   const [pkg, setPkg] = useState('');
   const [svc, setSvc] = useState('');
@@ -14,10 +15,11 @@ export default function GrpcWorkspace() {
 
   async function callUnary() {
     try {
+      const id = selectedId || await ensureConnection();
       const res = await fetch('/unicon/api/operation', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          connectionId: await ensureConnection(),
+          connectionId: id,
           operation: 'unary',
           params: { method, request: JSON.parse(payload || '{}') }
         })
@@ -28,6 +30,7 @@ export default function GrpcWorkspace() {
   }
 
   async function ensureConnection() {
+    if (selectedId) return selectedId;
     // Create or reuse a connection for this session by pushing config to server and connecting
     const createRes = await fetch('/unicon/api/connections', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -8,6 +8,12 @@ const { issueJWT, verifyJWT } = require('./middleware');
 module.exports = function createAuthRouter(db) {
   // Fallback in-memory if no db
   const mem = new Map();
+  // Seed a demo account for development so demo@unicon.local / demo123 works without registering.
+  try {
+    const salt = bcrypt.genSaltSync(10);
+    const hash = bcrypt.hashSync('demo123', salt);
+    mem.set('demo@unicon.local', { email: 'demo@unicon.local', hash, salt, roles: ['developer'] });
+  } catch (_) {}
   const router = express.Router();
 
   router.post('/register', async (req, res) => {

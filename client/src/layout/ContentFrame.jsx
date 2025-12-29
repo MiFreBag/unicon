@@ -1,7 +1,7 @@
 // client/src/layout/ContentFrame.jsx
 import React, { useMemo } from 'react';
 
-export default function ContentFrame({ tabs, activeTabId, registry }) {
+export default function ContentFrame({ tabs, activeTabId, registry, openTab }) {
   const active = useMemo(() => tabs.find(t => t.id === activeTabId) || null, [tabs, activeTabId]);
   if (!active) {
     return (
@@ -17,7 +17,7 @@ export default function ContentFrame({ tabs, activeTabId, registry }) {
   const Component = def.component;
   return (
     <main className="flex-1 bg-white p-4 overflow-auto">
-      <Component {...(active.params || {})} />
+      <Component {...(active.params || {})} openTab={openTab} />
     </main>
   );
 }

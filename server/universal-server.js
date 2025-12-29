@@ -168,7 +168,17 @@ const createApp = (state) => {
   if (enableCsp) {
     const frameAncestors = process.env.CSP_FRAME_ANCESTORS || "'self'"; // e.g., 'self' or 'none'
     const wsConnect = `ws://localhost:${WS_PORT}`;
-    const connectSrc = ["'self'", `http://localhost:${PORT}`, wsConnect, 'http://localhost:5174', 'ws://localhost:5174'].join(' ');
+    const connectSrc = [
+      "'self'",
+      // Backend HTTP
+      `http://localhost:${PORT}`,
+      `http://127.0.0.1:${PORT}`,
+      // Backend WS
+      wsConnect,
+      `ws://127.0.0.1:${WS_PORT}`,
+      // Vite dev server (HTTP + HTTPS + WS)
+      'http://localhost:5174', 'https://localhost:5174', 'ws://localhost:5174', 'wss://localhost:5174'
+    ].join(' ');
     const inProd = process.env.NODE_ENV === 'production' || process.env.ELECTRON === '1';
     const scriptSrc = inProd ? "script-src 'self'" : "script-src 'self' 'unsafe-eval'"; // keep eval only in dev
     const csp = [
@@ -333,27 +343,70 @@ const createApp = (state) => {
 
       // Create protocol handler when applicable
       let handler = null;
-      if (connection.type === 'rest') {
-        handler = new EnhancedRestHandler(connection.id, connection.config || {});
-        await handler.connect();
-      } else if (connection.type === 'ssh') {
-        handler = new SSHHandler(connection.id, connection.config || {});
-        await handler.connect();
-      } else if (connection.type === 'k8s') {
-        handler = new K8sHandler(connection.id, connection.config || {});
-        await handler.connect();
-      } else if (connection.type === 'websocket') {
-        handler = new WSHandler(connection.id, connection.config || {});
-        await handler.connect();
-      } else if (connection.type === 'sql') {
-        handler = new SQLHandler(connection.id, connection.config || {});
-        await handler.connect();
-      } else if (connection.type === 'opcua' || connection.type === 'opc-ua') {
-        handler = new OPCUAHandler(connection.id, connection.config || {});
-        await handler.connect();
-      } else if (connection.type === 'grpc') {
-        handler = new GrpcHandler(connection.id, connection.config || {});
-        await handler.connect();
+      try {
+        if (connection.type === 'rest') {
+          handler = new EnhancedRestHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'ssh') {
+          handler = new SSHHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'k8s') {
+          handler = new K8sHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'websocket') {
+          handler = new WSHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'sql') {
+          handler = new SQLHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'opcua' || connection.type === 'opc-ua') {
+          handler = new OPCUAHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'grpc') {
+          handler = new GrpcHandler(connection.id, connection.config || {});
+          await handler.connect();
+        }
+      } catch (e) {
+        const msg = e && e.message ? e.message : 'connect error';
+        const pick = (type, message) => {
+          switch ((type || '').toLowerCase()) {
+            case 'rest':
+              if (/getaddrinfo|ENOTFOUND/i.test(message)) return { code: 'REST_DNS', hint: 'Check the Base URL host name.' };
+              if (/ECONNREFUSED|fetch failed|EHOSTUNREACH|ENETUNREACH/i.test(message)) return { code: 'REST_UNREACHABLE', hint: 'Target API not reachable. Verify URL and network.' };
+              return { code: 'REST_CONNECT_ERROR', hint: 'Verify Base URL and CORS/proxy.' };
+            case 'ssh':
+              if (/All configured authentication methods failed|Permission denied/i.test(message)) return { code: 'SSH_AUTH', hint: 'Check username/password or key.' };
+              if (/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|Timed out/i.test(message)) return { code: 'SSH_NETWORK', hint: 'Verify host/port and firewall.' };
+              return { code: 'SSH_CONNECT_ERROR', hint: 'Verify SSH config and credentials.' };
+            case 'k8s':
+              if (/kubeconfig|config/i.test(message)) return { code: 'K8S_CONFIG', hint: 'Provide a valid kubeconfig path or inline config.' };
+              return { code: 'K8S_CONNECT_ERROR', hint: 'Verify cluster access and context.' };
+            case 'websocket':
+              if (/ECONNREFUSED|failed: Connection refused|failed: Error in connection/i.test(message)) return { code: 'WS_REFUSED', hint: 'Check WS URL and server availability.' };
+              return { code: 'WS_CONNECT_ERROR', hint: 'Verify WS endpoint and protocol (ws/wss).' };
+            case 'sql':
+              if (/password authentication failed|access denied/i.test(message)) return { code: 'SQL_AUTH', hint: 'Check DB user/password.' };
+              if (/ECONNREFUSED|EHOSTUNREACH|timeout/i.test(message)) return { code: 'SQL_NETWORK', hint: 'Verify DB host/port and network.' };
+              return { code: 'SQL_CONNECT_ERROR', hint: 'Check DSN/connection string.' };
+            case 'opcua':
+            case 'opc-ua':
+              if (/BadSecurityChecksFailed|certificate/i.test(message)) return { code: 'OPCUA_SECURITY', hint: 'Verify certificates and security policy.' };
+              if (/BadServiceUnsupported/i.test(message)) return { code: 'OPCUA_SERVICE_UNSUPPORTED', hint: 'Endpoint may not support the requested security mode/policy or user token. If using username/password, set Security Mode to Sign or SignAndEncrypt and a non-None policy; or try Anonymous with None to test.' };
+              return { code: 'OPCUA_CONNECT_ERROR', hint: 'Verify endpoint URL and server status.' };
+            case 'grpc':
+              if (/UNAVAILABLE|No connection established|connect ECONNREFUSED/i.test(message)) return { code: 'GRPC_UNAVAILABLE', hint: 'Verify address and server listening.' };
+              return { code: 'GRPC_CONNECT_ERROR', hint: 'Check proto/endpoint and server.' };
+            default:
+              return { code: 'CONNECT_ERROR', hint: 'General connection error.' };
+          }
+        };
+        const reason = pick(connection.type, msg);
+        connection.status = 'disconnected';
+        activeConnections.delete(connectionId);
+        await persistConnections(connections, db).catch(()=>{});
+        broadcast({ type: 'connection_status', data: { connectionId, status: 'disconnected' } });
+        broadcast({ type: 'log', data: { connectionId, message: `Connect failed: ${msg}`, type: 'error', code: reason.code, hint: reason.hint } });
+        return res.status(500).json({ success: false, error: msg, code: reason.code, hint: reason.hint });
       }
 
       connection.status = 'connected';
@@ -366,7 +419,8 @@ const createApp = (state) => {
 
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      broadcast({ type: 'log', data: { connectionId: req.body?.connectionId, message: `Connect error: ${error.message}`, type: 'error', code: 'CONNECT_ERROR' } });
+      res.status(500).json({ success: false, error: error.message, code: 'CONNECT_ERROR' });
     }
   });
 
@@ -381,7 +435,9 @@ const createApp = (state) => {
 
       const active = activeConnections.get(connectionId);
       if (active?.handler?.disconnect) {
-        try { await active.handler.disconnect(); } catch (_) {}
+        try { await active.handler.disconnect(); } catch (e) {
+          broadcast({ type: 'log', data: { connectionId, message: `Disconnect failed: ${e.message}`, type: 'error', code: 'DISCONNECT_ERROR', hint: 'Check connection/session state.' } });
+        }
       }
 
       connection.status = 'disconnected';
@@ -394,7 +450,8 @@ const createApp = (state) => {
 
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      broadcast({ type: 'log', data: { connectionId: req.body?.connectionId, message: `Disconnect error: ${error.message}`, type: 'error', code: 'DISCONNECT_ERROR' } });
+      res.status(500).json({ success: false, error: error.message, code: 'DISCONNECT_ERROR' });
     }
   });
 
@@ -745,8 +802,17 @@ const createApp = (state) => {
     const challenge = makeChallenge(verifier);
     const redirectUri = `${req.protocol}://${req.get('host')}/unicon/api/oauth/${req.params.provider}/callback`;
     pkceStore.set(state, { verifier, provider: req.params.provider, exp: Date.now()+pkceExpireMs, challenge, redirectUri });
+    // Per-response CSP nonce for inline <style>
+    const styleNonce = crypto.randomBytes(16).toString('base64');
+    // Override CSP to avoid 'unsafe-inline' by allowing style nonce for this HTML response only
+    const current = (res.getHeader('Content-Security-Policy')||'').toString();
+    if (current) {
+      const tightened = current.replace("style-src 'self' 'unsafe-inline'", `style-src 'self' 'nonce-${styleNonce}'`)
+                               .replace("script-src 'self'", `script-src 'self'`);
+      res.setHeader('Content-Security-Policy', tightened);
+    }
     const html = `<!doctype html><html><head><meta charset='utf-8'><title>Continue with ${req.params.provider}</title>
-      <style>body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0}
+      <style nonce='${styleNonce}'>body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0}
       .wrap{max-width:560px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.06)}
       .hd{padding:20px 24px;border-bottom:1px solid #e2e8f0;display:flex;gap:8px;align-items:center}
       .bd{padding:24px}
@@ -836,17 +902,19 @@ const createApp = (state) => {
       // Provision user and emit local code for client
       if (DB) {
         const dbi = (await buildState()).db;
-        let u = await dbi.getUserByEmail(email);
-        if (!u) {
-          const { v4: uuidv4 } = require('uuid');
-          await dbi.createUser({ id: uuidv4(), email, password_hash: 'oauth', salt: 'oauth', createdAt: new Date().toISOString() });
-          u = await dbi.getUserByEmail(email);
-          await dbi.assignRoleToUser(u.id, 'developer');
-        }
-        if (avatar) await dbi.setUserPref(u.id, 'avatar', avatar);
-        await dbi.setUserPref(u.id, 'provider', providerName);
-        if (dbi.upsertOauthAccount) {
-          await dbi.upsertOauthAccount({ id: uuidv4(), user_id: u.id, provider: providerName, provider_user_id: email, linked_at: new Date().toISOString() });
+        if (dbi) {
+          let u = await dbi.getUserByEmail(email);
+          if (!u) {
+            const { v4: uuidv4 } = require('uuid');
+            await dbi.createUser({ id: uuidv4(), email, password_hash: 'oauth', salt: 'oauth', createdAt: new Date().toISOString() });
+            u = await dbi.getUserByEmail(email);
+            await dbi.assignRoleToUser(u.id, 'developer');
+          }
+          if (avatar) await dbi.setUserPref(u.id, 'avatar', avatar);
+          await dbi.setUserPref(u.id, 'provider', providerName);
+          if (dbi.upsertOauthAccount) {
+            await dbi.upsertOauthAccount({ id: uuidv4(), user_id: u.id, provider: providerName, provider_user_id: email, linked_at: new Date().toISOString() });
+          }
         }
       }
       const localCode = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
@@ -862,35 +930,50 @@ const createApp = (state) => {
   // OAuth2 demo endpoints (local only) with minimal consent + PKCE-like state
   const oauthCodes = new Map(); // code -> { userEmail, exp }
   app.get('/unicon/api/oauth/authorize', (req, res) => {
-    const { client_id, redirect_uri, state } = req.query || {};
-    const okClient = client_id === 'demo';
-    const okRedirect = typeof redirect_uri === 'string' && /\/unicon\/auth\/callback$/.test(redirect_uri);
-    if (!okClient || !okRedirect) return res.status(400).send('invalid_client or invalid_redirect');
-    // Minimal consent HTML
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Authorize – Demo</title>
-      <style>body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:0;background:#f8fafc;color:#0f172a}
-      .wrap{max-width:540px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.06)}
-      .hd{padding:20px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px}
-      .bd{padding:24px}
-      .btn{display:inline-block;padding:10px 16px;border-radius:6px;text-decoration:none}
-      .pri{background:#004b8d;color:#fff}
-      .sec{background:#e2e8f0;color:#0f172a;margin-left:8px}
-      .muted{color:#475569;font-size:14px}
-      </style></head><body>
-      <div class="wrap">
-        <div class="hd"><strong>Unicon Demo OAuth</strong></div>
-        <div class="bd">
-          <p class="muted">The application <strong>Unicon</strong> is requesting access to your demo account <strong>demo@unicon.local</strong>.</p>
-          <ul class="muted"><li>Read profile (email)</li><li>Basic access</li></ul>
-          <div style="margin-top:16px">
-            <a class="btn pri" href="/unicon/api/oauth/authorize/decision?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&state=${encodeURIComponent(state||'')}&consent=allow">Allow</a>
-            <a class="btn sec" href="/unicon/api/oauth/authorize/decision?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&state=${encodeURIComponent(state||'')}&consent=deny">Cancel</a>
+    try {
+      const { client_id, redirect_uri, state } = req.query || {};
+      const okClient = client_id === 'demo';
+      const okRedirect = typeof redirect_uri === 'string' && /\/unicon\/auth\/callback$/.test(redirect_uri);
+      if (!okClient || !okRedirect) return res.status(400).send('invalid_client or invalid_redirect');
+      // Per-response CSP nonce for inline <style>
+      const styleNonce = crypto.randomBytes(16).toString('base64');
+      const current = (res.getHeader('Content-Security-Policy')||'').toString();
+      if (current) {
+        const tightened = current.replace("style-src 'self' 'unsafe-inline'", `style-src 'self' 'nonce-${styleNonce}'`)
+                                 .replace("script-src 'self'", `script-src 'self'`);
+        res.setHeader('Content-Security-Policy', tightened);
+      }
+      // Minimal consent HTML with nonce on <style>
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>Authorize – Demo</title>
+        <style nonce='${styleNonce}'>body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:0;background:#f8fafc;color:#0f172a}
+        .wrap{max-width:540px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.06)}
+        .hd{padding:20px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px}
+        .bd{padding:24px}
+        .btn{display:inline-block;padding:10px 16px;border-radius:6px;text-decoration:none}
+        .pri{background:#004b8d;color:#fff}
+        .sec{background:#e2e8f0;color:#0f172a;margin-left:8px}
+        .muted{color:#475569;font-size:14px}
+        </style></head><body>
+        <div class="wrap">
+          <div class="hd"><strong>Unicon Demo OAuth</strong></div>
+          <div class="bd">
+            <p class="muted">The application <strong>Unicon</strong> is requesting access to your demo account <strong>demo@unicon.local</strong>.</p>
+            <ul class="muted"><li>Read profile (email)</li><li>Basic access</li></ul>
+            <div style="margin-top:16px">
+              <a class="btn pri" href="/unicon/api/oauth/authorize/decision?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&state=${encodeURIComponent(state||'')}&consent=allow">Allow</a>
+              <a class="btn sec" href="/unicon/api/oauth/authorize/decision?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&state=${encodeURIComponent(state||'')}&consent=deny">Cancel</a>
+            </div>
           </div>
         </div>
-      </div>
-      </body></html>`;
-    res.setHeader('Content-Type','text/html');
-    return res.send(html);
+        </body></html>`;
+      res.setHeader('Content-Type','text/html');
+      return res.send(html);
+    } catch (e) {
+      if (process.env.NODE_ENV === 'test') {
+        return res.status(500).send('server_error:' + e.message);
+      }
+      return res.status(500).send('server_error');
+    }
   });
   app.get('/unicon/api/oauth/authorize/decision', (req,res)=>{
     const { client_id, redirect_uri, state, consent } = req.query||{};
@@ -911,19 +994,26 @@ const createApp = (state) => {
       if (!entry || entry.exp < Date.now()) return res.status(400).json({ error: 'expired_code' });
       // ensure user exists
       if (DB) {
-        const db = (await buildState()).db; // reuse init to have db
-        let u = await db.getUserByEmail(entry.userEmail);
-        if (!u) {
-          const { v4: uuidv4 } = require('uuid');
-          await db.createUser({ id: uuidv4(), email: entry.userEmail, password_hash: 'oauth', salt: 'oauth', createdAt: new Date().toISOString() });
-          u = await db.getUserByEmail(entry.userEmail);
-          await db.assignRoleToUser(u.id, 'developer');
+        const dbi = (await buildState()).db; // reuse init to have db
+        if (dbi) {
+          let u = await dbi.getUserByEmail(entry.userEmail);
+          if (!u) {
+            const { v4: uuidv4 } = require('uuid');
+            await dbi.createUser({ id: uuidv4(), email: entry.userEmail, password_hash: 'oauth', salt: 'oauth', createdAt: new Date().toISOString() });
+            u = await dbi.getUserByEmail(entry.userEmail);
+            await dbi.assignRoleToUser(u.id, 'developer');
+          }
         }
       }
       const { issueJWT } = require('./auth/middleware');
       const token = issueJWT({ id: entry.userEmail, email: entry.userEmail, roles: ['developer'] });
       return res.json({ access_token: token, token_type: 'Bearer', expires_in: 8 * 60 * 60 });
-    } catch (e) { return res.status(500).json({ error: 'server_error' }); }
+    } catch (e) {
+      if (process.env.NODE_ENV === 'test') {
+        return res.status(500).json({ error: 'server_error', detail: e.message });
+      }
+      return res.status(500).json({ error: 'server_error' });
+    }
   });
 
   app.use('/unicon/api', apiRouter);
@@ -963,10 +1053,18 @@ const createApp = (state) => {
 };
 
 const createWebSocketServer = (connectedClients, customPort = WS_PORT) => {
-  const wsServer = new WebSocket.Server({
-    port: customPort,
-    host: '0.0.0.0'
-  });
+  const keyPath = process.env.HTTPS_KEY_FILE;
+  const certPath = process.env.HTTPS_CERT_FILE;
+  let wsServer;
+  if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+    const httpsServer = https.createServer({ key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) });
+    wsServer = new WebSocket.Server({ server: httpsServer });
+    httpsServer.listen(customPort, '0.0.0.0', () => {
+      console.log(`🔐 WSS Server running on port ${customPort}`);
+    });
+  } else {
+    wsServer = new WebSocket.Server({ port: customPort, host: '0.0.0.0' });
+  }
 
   wsServer.on('connection', ws => {
     connectedClients.add(ws);
@@ -1013,26 +1111,35 @@ const startServers = async (state) => {
     try { await new Promise(res => __RUNNING.server.close(() => res(null))); } catch {}
     __RUNNING = { server: null, wsServer: null };
   }
+
   let resolvedState = state;
+  let appState;
   if (!resolvedState) {
-    resolvedState = await buildState();
+    appState = await buildState();
   } else if (typeof resolvedState.then === 'function') {
-    resolvedState = await resolvedState;
+    // Start quickly with a placeholder state; merge real state when ready
+    appState = { connections: [], activeConnections: new Map(), connectedClients: new Set(), db: null };
+    resolvedState.then(real => {
+      try {
+        // merge into the objects captured by the app closures
+        appState.connections.splice(0, appState.connections.length, ...real.connections);
+        appState.db = real.db;
+      } catch {}
+    }).catch(()=>{});
+  } else {
+    appState = resolvedState;
   }
-  const app = createApp(resolvedState);
+
+  const app = createApp(appState);
   const httpPort = Number(process.env.PORT) || PORT;
   const wsPort = Number(process.env.WS_PORT) || WS_PORT;
-  const IN_TEST = process.env.NODE_ENV === 'test' || !!process.env.JEST_WORKER_ID;
-  if (IN_TEST) {
-    await waitPortFree(wsPort);
-    await waitPortFree(httpPort);
-  }
-  const wsServer = createWebSocketServer(resolvedState.connectedClients, wsPort);
-  const server = app.listen(httpPort, '0.0.0.0', () => {
-    console.log(`🚀 HTTP Server running on port ${httpPort}`);
-    console.log(`📡 WebSocket Server running on port ${wsPort}`);
-    console.log(`🌐 API available at http://localhost:${httpPort}/unicon/api`);
-  });
+  const wsServer = createWebSocketServer(appState.connectedClients, wsPort);
+  const http = require('http');
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(httpPort, '0.0.0.0', resolve));
+  console.log(`🚀 HTTP Server running on port ${httpPort}`);
+  console.log(`📡 WebSocket Server running on port ${wsPort}`);
+  console.log(`🌐 API available at http://localhost:${httpPort}/unicon/api`);
 
   const shutdown = () => {
     wsServer.close();

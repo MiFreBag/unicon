@@ -5,6 +5,7 @@ import Header from '../layout/Header.jsx';
 import TabStrip from '../layout/TabStrip.jsx';
 import ContentFrame from '../layout/ContentFrame.jsx';
 import RestWorkspace from '../workspaces/RestWorkspace.jsx';
+import BackendStatus from '../components/BackendStatus.jsx';
 import OpcUaWorkspace from '../workspaces/opcua/OpcUaWorkspace.jsx';
 import WebSocketWorkspace from '../workspaces/ws/WebSocketWorkspace.jsx';
 import GrpcWorkspace from '../workspaces/grpc/GrpcWorkspace.jsx';
@@ -40,8 +41,10 @@ export default function AppShell() {
       const saved = JSON.parse(localStorage.getItem('tabs_v1') || 'null');
       if (saved && Array.isArray(saved) && saved.length) return saved;
     } catch {}
-    const id = 'rest-1';
-    return [{ id, kind: 'rest', title: registry.rest.title, params: {} }];
+    const lastKind = (() => { try { return localStorage.getItem('last_workspace_kind_v1') || 'rest'; } catch { return 'rest'; } })();
+    const id = `${lastKind}-1`;
+    const def = registry[lastKind] || registry.rest;
+    return [{ id, kind: lastKind, title: def.title, params: {} }];
   });
   const [activeTabId, setActiveTabId] = useState(() => {
     return localStorage.getItem('active_tab_v1') || 'rest-1';
@@ -53,8 +56,8 @@ export default function AppShell() {
     const id = `${kind}-${Date.now()}`;
     setTabs(prev => [...prev, { id, kind, title: def.title, params }]);
     setActiveTabId(id);
+    try { localStorage.setItem('last_workspace_kind_v1', kind); } catch {}
   }, [registry]);
-
   const closeTab = useCallback((id) => {
     setTabs(prev => prev.filter(t => t.id !== id));
     setActiveTabId(prev => {
@@ -112,14 +115,17 @@ export default function AppShell() {
     return <Login onLoggedIn={() => window.location.reload()} />;
   }
 
+  const activeTab = tabs.find(t => t.id === activeTabId) || null;
   return (
     <div className="min-h-screen bg-white text-gray-900">
       <div className="flex h-screen">
-        <Sidebar onOpenWorkspace={openTab} activeTabKind={tabs.find(t => t.id === activeTabId)?.kind} />
+        <Sidebar onOpenWorkspace={openTab} activeTabKind={activeTab?.kind} />
         <div className="flex-1 flex flex-col">
-          <Header onNewConnection={() => openTab('connections')} />
+          <Header onNewConnection={() => openTab('connections')} activeTab={activeTab} />
+          {/* Backend status banner */}
+          <BackendStatus />
           <TabStrip tabs={tabs} activeTabId={activeTabId} onClose={closeTab} onCloseAll={closeAllTabs} onActivate={activateTab} />
-          <ContentFrame tabs={tabs} activeTabId={activeTabId} registry={registry} />
+          <ContentFrame tabs={tabs} activeTabId={activeTabId} registry={registry} openTab={openTab} />
         </div>
       </div>
     </div>

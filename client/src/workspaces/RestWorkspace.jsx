@@ -17,6 +17,7 @@ import {
 import Button from '../ui/Button.jsx';
 import Input from '../ui/Input.jsx';
 import Select from '../ui/Select.jsx';
+import ConnectionBadge from '../ui/ConnectionBadge.jsx';
 
 const RestWorkspace = ({ connection }) => {
   const [activeTab, setActiveTab] = useState('request');
@@ -270,7 +271,7 @@ const RestWorkspace = ({ connection }) => {
   return (
     <div className="h-full flex flex-col">
       {/* Connection in use */}
-      <div className="mb-3"><ConnectionBadge connection={connection} /></div>
+      {connection ? (<div className="mb-3"><ConnectionBadge connection={connection} /></div>) : null}
       {/* Tab Navigation */}
       <div className="border-b border-gray-200 mb-6">
         <nav className="flex space-x-8">

@@ -13,8 +13,20 @@ class OPCUAHandler {
   }
 
   async connect() {
-    const endpointUrl = this.config.endpointUrl || this.config.endpoint;
-    if (!endpointUrl) throw new Error('OPC UA endpointUrl is required');
+    // Normalize and validate endpoint URL early to avoid opaque NaN port errors from node-opcua
+    const raw = (this.config.endpointUrl || this.config.endpoint || '').trim();
+    if (!raw) throw new Error('OPC UA endpointUrl is required');
+    const m = raw.match(/^opc\.tcp:\/\/([^:\/]+):(\d{1,5})(\/.*)?$/i);
+    if (!m) {
+      throw new Error('Invalid OPC UA endpointUrl. Expected format: opc.tcp://host:port');
+    }
+    const host = m[1];
+    const port = Number(m[2]);
+    const path = m[3] || '';
+    if (!Number.isFinite(port) || port < 0 || port >= 65536) {
+      throw new Error('Invalid OPC UA port: must be 0-65535');
+    }
+    const endpointUrl = `opc.tcp://${host}:${port}${path}`;
 
     const modeMap = { None: MessageSecurityMode.None, Sign: MessageSecurityMode.Sign, SignAndEncrypt: MessageSecurityMode.SignAndEncrypt };
     const polMap = {
@@ -25,6 +37,14 @@ class OPCUAHandler {
       Aes128_Sha256_RsaOaep: SecurityPolicy.Aes128_Sha256_RsaOaep,
       Aes256_Sha256_RsaPss: SecurityPolicy.Aes256_Sha256_RsaPss,
     };
+    // If username/password is provided, security mode must not be None
+    const ui = this.config.userIdentity || {};
+    const userName = (ui.userName ?? ui.username ?? this.config.username) || undefined;
+    const password = (ui.password ?? this.config.password) || undefined;
+    if (userName && (this.config.securityMode === 'None' || this.config.securityPolicy === 'None')) {
+      throw new Error('Username/password requires Security Mode Sign or SignAndEncrypt with a non-None policy');
+    }
+
     const client = OPCUAClient.create({
       applicationName: 'Universal Test Client',
       securityMode: modeMap[this.config.securityMode] ?? MessageSecurityMode.None,
@@ -40,9 +60,6 @@ class OPCUAHandler {
     await Promise.race([connectPromise, timed]);
 
     // Prefer simple username/password form (avoids token-type issues across node-opcua versions)
-    const ui = this.config.userIdentity || {};
-    const userName = (ui.userName ?? ui.username ?? this.config.username) || undefined;
-    const password = (ui.password ?? this.config.password) || undefined;
     const session = userName ? await client.createSession({ userName, password })
                              : await client.createSession();
 
@@ -97,13 +114,24 @@ class OPCUAHandler {
     const scStr = statusCode?.name || String(statusCode || '');
     let ok = !!statusCode && (statusCode.value === 0 || scStr.includes('Good'));
 
-    // Fallback: element-wise writes for arrays when server rejects typed arrays
+    // Fallbacks for arrays (avoid server array encoding quirks)
     if (!ok && Array.isArray(value)) {
+      const { DataValue } = require('node-opcua-data-value');
+      // 1) Try a full write via write() API
+      const full = await this.session.write([{
+        nodeId,
+        attributeId: AttributeIds.Value,
+        value: new DataValue({ value: this._coerceVariant(value, dt) })
+      }]);
+      if (Array.isArray(full) && full[0] && (full[0].value === 0 || (full[0].name||'').includes('Good'))) {
+        return { success: true, statusCode: full[0].name || String(full[0]) };
+      }
+      // 2) Element-wise indexRange writes
       const writes = value.map((el, i) => ({
         nodeId,
         attributeId: AttributeIds.Value,
         indexRange: String(i),
-        value: { value: this._coerceVariant(el, dataType) }
+        value: new DataValue({ value: this._coerceVariant(el, dt) })
       }));
       const results = await this.session.write(writes);
       ok = Array.isArray(results) && results.every(rc => rc && (rc.value === 0 || (rc.name||'').includes('Good')));

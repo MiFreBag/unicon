@@ -47,6 +47,24 @@ export async function deleteConnection(id) {
     .then(r => r.json());
 }
 
+export async function updateConnection(id, payload) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/connections/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify(payload || {})
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    const error = data?.error || res.statusText;
+    throw new Error(error);
+  }
+  return data;
+}
+
 export async function connectConnection(connectionId) {
   return apiPost('/connect', { connectionId });
 }

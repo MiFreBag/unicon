@@ -12,11 +12,12 @@ function makeWSUrl() {
   const port = import.meta?.env?.VITE_WS_PORT || 8080;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const sameOrigin = `${proto}://${location.host}/ws`;
-  const fallback = `ws://127.0.0.1:${port}`;
-  return envUrl || (location.protocol === 'https:' ? fallback : sameOrigin);
+  const fallback = `ws://localhost:${port}`;
+  // Prefer same-origin so Vite can proxy wss->ws in dev; allow override via VITE_WS_URL
+  return envUrl || sameOrigin;
 }
 
-export default function SSHWorkspace() {
+export default function SSHWorkspace({ connectionId: initialConnectionId }) {
   const [connections, setConnections] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [status, setStatus] = useState('disconnected');
@@ -33,10 +34,12 @@ export default function SSHWorkspace() {
     (async () => {
       const res = await listConnections();
       setConnections(res.connections || []);
-      const first = (res.connections || []).find(c => c.type === 'ssh');
+      const list = (res.connections || []).filter(c => c.type === 'ssh');
+      const preferred = list.find(c => c.id === initialConnectionId);
+      const first = preferred || list[0];
       if (first) setSelectedId(first.id);
     })();
-  }, []);
+  }, [initialConnectionId]);
 
   // Setup WebSocket to receive shell data
   useEffect(() => {

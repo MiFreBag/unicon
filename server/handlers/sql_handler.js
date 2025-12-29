@@ -5,7 +5,9 @@ class SQLHandler {
   constructor(connectionId, config = {}) {
     this.connectionId = connectionId;
     this.config = config;
-    this.driver = (config.driver || 'sqlite').toLowerCase();
+    const raw = (config.driver || 'sqlite').toLowerCase();
+    const map = { postgresql: 'pg', postgres: 'pg', timescaledb: 'pg', tsdb: 'pg', mariadb: 'mysql' };
+    this.driver = map[raw] || raw;
     this.client = null; // sqlite Database or pg Pool or mysql2 Pool
   }
 

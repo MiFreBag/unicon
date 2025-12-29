@@ -4,7 +4,7 @@ import { listConnections, connectConnection, disconnectConnection, op } from '..
 import { RefreshCw, Play, Square } from 'lucide-react';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 
-export default function K8sWorkspace() {
+export default function K8sWorkspace({ connectionId: initialConnectionId }) {
   const [connections, setConnections] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [status, setStatus] = useState('disconnected');
@@ -25,10 +25,12 @@ export default function K8sWorkspace() {
     (async () => {
       const res = await listConnections();
       setConnections(res.connections || []);
-      const first = (res.connections || []).find(c => c.type === 'k8s');
+      const list = (res.connections || []).filter(c => c.type === 'k8s');
+      const preferred = list.find(c => c.id === initialConnectionId);
+      const first = preferred || list[0];
       if (first) setSelectedId(first.id);
     })();
-  }, []);
+  }, [initialConnectionId]);
 
   async function onConnect() {
     if (!selectedId) return;
