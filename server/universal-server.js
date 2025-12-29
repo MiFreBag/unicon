@@ -148,16 +148,28 @@ const createBroadcast = connectedClients => message => {
   });
 };
 
-const createCorsMiddleware = allowedOrigins => cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
-    }
-  },
-  credentials: true
-});
+const createCorsMiddleware = allowedOrigins => {
+  const isDevLike = (process.env.NODE_ENV !== 'production') && process.env.ELECTRON !== '1';
+  const isPrivateLan = (host) => /^(localhost|127\.0\.0\.1|10\.(\d{1,3}\.){2}\d{1,3}|192\.168\.(\d{1,3})\.(\d{1,3})|172\.(1[6-9]|2[0-9]|3[0-1])\.(\d{1,3})\.(\d{1,3}))$/.test(host || '');
+  return cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      if (isDevLike) {
+        try {
+          const u = new URL(origin);
+          // Allow LAN Vite dev servers on private IPs, default ports 5174/4173
+          if (isPrivateLan(u.hostname) && (u.port === '5174' || u.port === '4173')) {
+            return callback(null, true);
+          }
+        } catch (_) {}
+      }
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    credentials: true
+  });
+};
 
 const createApp = (state) => {
   const { connections, activeConnections, connectedClients, db } = state;
@@ -1109,8 +1121,7 @@ const createApp = (state) => {
     }
   });
 
-  // FTP delete
-  });
+  // FTP utilities end
   apiRouter.post('/tools/dns', async (req, res) => {
     try {
       const { name, rrtype = 'A', timeoutMs = 8000 } = req.body || {};
@@ -1141,17 +1152,6 @@ const createApp = (state) => {
     } catch (e) { res.status(500).json({ success:false, error: e.message }); }
   });
 
-  app.use('/unicon/api', apiRouter);
-      const active = activeConnections.get(connectionId);
-      if (!active || active.type !== 'ftp') return res.status(400).json({ success: false, error: 'FTP connection not active' });
-      const result = await active.handler.remove(p);
-      res.json(result);
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
-
-  app.use('/unicon/api', apiRouter);
 
   const builtIndex = path.join(__dirname, 'public', 'index.html');
   const hasBuiltClient = fs.existsSync(builtIndex);

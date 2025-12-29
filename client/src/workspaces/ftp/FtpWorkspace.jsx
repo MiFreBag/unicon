@@ -33,7 +33,8 @@ export default function FtpWorkspace({ connection }) {
   }
 
   function open(entry) {
-    if (entry.isDirectory) {
+    const isDir = entry.isDirectory === true || entry.type === 1 || entry.type === 'd'
+    if (isDir) {
       const next = (cwd === '/' ? `/${entry.name}` : `${cwd}/${entry.name}`)
       list(next)
     } else {
@@ -90,7 +91,7 @@ export default function FtpWorkspace({ connection }) {
             {items.map((it,i)=> (
               <tr key={i} className={`border-b cursor-pointer ${selected?.name===it.name ? 'bg-blue-50' : ''}`} onClick={()=>open(it)}>
                 <td className="px-3 py-2">{it.name}</td>
-                <td className="px-3 py-2">{it.isDirectory ? 'dir' : 'file'}</td>
+                <td className="px-3 py-2">{(it.isDirectory === true || it.type === 1 || it.type === 'd') ? 'dir' : 'file'}</td>
                 <td className="px-3 py-2">{it.size ?? ''}</td>
               </tr>
             ))}
