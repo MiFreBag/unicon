@@ -318,8 +318,8 @@ export default function ConnectionList({ openTab }) {
     retryTimers.current.clear();
   }, []);
 
-  const kindMap = { rest:'rest', ws:'ws', grpc:'grpc', cpd:'cpd', sql:'sql', 'opc-ua':'opcua', opcua:'opcua', ssh:'ssh', k8s:'k8s' };
-  const labelMap = { rest:'REST', ws:'WebSocket', grpc:'gRPC', cpd:'CPD', sql:'SQL', opcua:'OPC UA', 'opc-ua':'OPC UA', ssh:'SSH', k8s:'Kubernetes' };
+  const kindMap = { rest:'rest', ws:'ws', grpc:'grpc', cpd:'cpd', sql:'sql', 'opc-ua':'opcua', opcua:'opcua', ssh:'ssh', k8s:'k8s', ftp:'rest' };
+  const labelMap = { rest:'REST', ws:'WebSocket', grpc:'gRPC', cpd:'CPD', sql:'SQL', opcua:'OPC UA', 'opc-ua':'OPC UA', ssh:'SSH', k8s:'Kubernetes', ftp:'FTP' };
 
   const targetsFor = (conn) => {
     const primary = kindMap[conn.type] || 'rest';
@@ -566,6 +566,13 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
   const [sshPassword, setSshPassword] = useState('');
   const [sshPrivateKey, setSshPrivateKey] = useState('');
   const [sshPassphrase, setSshPassphrase] = useState('');
+  // FTP fields
+  const [ftpHost, setFtpHost] = useState('');
+  const [ftpPort, setFtpPort] = useState(21);
+  const [ftpUser, setFtpUser] = useState('');
+  const [ftpPwd, setFtpPwd] = useState('');
+  const [ftpSecure, setFtpSecure] = useState(false);
+  const [ftpPassive, setFtpPassive] = useState(true);
   // OPC UA fields
   const [opcEndpointUrl, setOpcEndpointUrl] = useState(initial?.config?.endpointUrl || '');
   const [opcSecurityPolicy, setOpcSecurityPolicy] = useState(initial?.config?.securityPolicy || 'None');
@@ -621,6 +628,15 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
       const kubeconfig = kubeSource === 'inline' ? kubeInline : undefined;
       const kubeconfigPath = kubeSource === 'path' ? kubePath : undefined;
       config = { kubeconfigSource: kubeSource, kubeconfig, kubeconfigPath, context: kubeContext, namespace: kubeNamespace };
+    } else if (type === 'ftp') {
+      config = {
+        host: ftpHost,
+        port: Number(ftpPort || 21),
+        user: ftpUser || undefined,
+        password: ftpPwd || undefined,
+        secure: !!ftpSecure,
+        passive: !!ftpPassive
+      };
     }
     onSave({ name: name.trim(), type, config }, initial?.id);
   };
@@ -643,6 +659,9 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
               <option value="grpc">gRPC</option>
               <option value="cpd">CPD</option>
               <option value="sql">SQL</option>
+              <option value="ssh">SSH</option>
+              <option value="ftp">FTP</option>
+              <option value="k8s">Kubernetes</option>
             </select>
           </div>
           {type === 'rest' && (
@@ -793,6 +812,35 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
                   <label className="block text-sm mb-1">Default Namespace</label>
                   <input className="w-full border rounded px-3 py-2" value={kubeNamespace} onChange={e => setKubeNamespace(e.target.value)} placeholder="default" />
                 </div>
+              </div>
+            </div>
+          )}
+
+          {type === 'ftp' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-sm mb-1">Host</label>
+                  <input className="w-full border rounded px-3 py-2" value={ftpHost} onChange={e=>setFtpHost(e.target.value)} placeholder="ftp.example.com" />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Port</label>
+                  <input type="number" className="w-full border rounded px-3 py-2" value={ftpPort} onChange={e=>setFtpPort(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-sm mb-1">Username</label>
+                  <input className="w-full border rounded px-3 py-2" value={ftpUser} onChange={e=>setFtpUser(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Password</label>
+                  <input type="password" className="w-full border rounded px-3 py-2" value={ftpPwd} onChange={e=>setFtpPwd(e.target.value)} />
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ftpSecure} onChange={e=>setFtpSecure(e.target.checked)} /> FTPS (secure)</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ftpPassive} onChange={e=>setFtpPassive(e.target.checked)} /> Passive mode</label>
               </div>
             </div>
           )}

@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const crypto = require('crypto');
 const multer = require('multer');
 const EnhancedRestHandler = require('./handlers/enhanced_rest_handler');
 let verifyJWTMiddleware = null;
@@ -368,6 +369,10 @@ const createApp = (state) => {
         } else if (connection.type === 'grpc') {
           handler = new GrpcHandler(connection.id, connection.config || {});
           await handler.connect();
+        } else if (connection.type === 'ftp') {
+          const FtpHandler = require('./handlers/ftp_handler');
+          handler = new FtpHandler(connection.id, connection.config || {});
+          await handler.connect();
         }
       } catch (e) {
         const msg = e && e.message ? e.message : 'connect error';
@@ -663,6 +668,16 @@ const createApp = (state) => {
       }
 
       // SQL operations
+      if (connection.type === 'ftp' && active.handler) {
+        const h = active.handler;
+        switch (operation) {
+          case 'list':
+            return res.json(await h.list(params?.path || '.'));
+          default:
+            return res.status(400).json({ success: false, error: `Unknown FTP operation: ${operation}` });
+        }
+      }
+
       if (connection.type === 'sql' && active.handler) {
         const h = active.handler;
         switch (operation) {
@@ -1020,6 +1035,36 @@ const createApp = (state) => {
     }
   });
 
+  // Tools endpoints (safe wrappers)
+  apiRouter.post('/tools/ping', async (req, res) => {
+    try {
+      const { host, count = 4, timeoutMs = 12000 } = req.body || {};
+      if (!/^[A-Za-z0-9_\-.:]+$/.test(host || '')) return res.status(400).json({ success:false, error:'invalid host' });
+      const n = Math.min(Math.max(parseInt(count,10)||4, 1), 10);
+      const isWin = process.platform === 'win32';
+      const cmd = isWin ? `ping -n ${n} ${host}` : `ping -c ${n} ${host}`;
+      const exec = require('child_process').exec;
+      exec(cmd, { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024*1024 }, (err, stdout='', stderr='') => {
+        if (err && !stdout) return res.status(500).json({ success:false, error: err.message, stderr });
+        res.json({ success:true, output: String(stdout||stderr) });
+      });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/tools/traceroute', async (req, res) => {
+    try {
+      const { host, maxHops = 20, timeoutMs = 30000 } = req.body || {};
+      if (!/^[A-Za-z0-9_\-.:]+$/.test(host || '')) return res.status(400).json({ success:false, error:'invalid host' });
+      const hops = Math.min(Math.max(parseInt(maxHops,10)||20, 1), 64);
+      const isWin = process.platform === 'win32';
+      const cmd = isWin ? `tracert -d -h ${hops} ${host}` : `traceroute -n -m ${hops} ${host}`;
+      const exec = require('child_process').exec;
+      exec(cmd, { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024*1024 }, (err, stdout='', stderr='') => {
+        if (err && !stdout) return res.status(500).json({ success:false, error: err.message, stderr });
+        res.json({ success:true, output: String(stdout||stderr) });
+      });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+
   app.use('/unicon/api', apiRouter);
 
   const builtIndex = path.join(__dirname, 'public', 'index.html');
@@ -1036,10 +1081,12 @@ const createApp = (state) => {
         const updated = current.replace("script-src 'self'", `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`)
                                .replace("style-src 'self' 'unsafe-inline'", "style-src 'self'");
         res.setHeader('Content-Security-Policy', updated);
-        html = html.replace('</head>', `<script nonce="${nonce}">window.__csp=1</script></head>`);
+        html = html.replace('</head>', `<script nonce=\"${nonce}\">window.__csp=1</script></head>`);
         res.setHeader('Content-Type','text/html');
         res.send(html);
       } catch (e) {
+        try { console.error('UI render failed:', e && e.message ? e.message : e); } catch(_){}
+        try { return res.sendFile(builtIndex); } catch (_) {}
         res.status(500).send('Failed to load UI');
       }
     });

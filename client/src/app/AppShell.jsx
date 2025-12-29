@@ -33,6 +33,8 @@ export default function AppShell() {
     grpc: { title: 'gRPC', icon: MessageSquare, component: GrpcWorkspace },
     cpd: { title: 'CPD', icon: Layers, component: CpdWorkspace },
     sql: { title: 'SQL', icon: Database, component: SqlWorkspace },
+    'helpers-network': { title: 'Network Tools', icon: Server, component: React.lazy(() => import('../workspaces/helpers/NetworkTools.jsx')) },
+    'helpers-format': { title: 'JSON/YAML Tools', icon: Layers, component: React.lazy(() => import('../workspaces/helpers/FormatTools.jsx')) },
   }), []);
 
   // Tabs with persistence
