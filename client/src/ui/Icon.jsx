@@ -1,37 +1,52 @@
 // client/src/ui/Icon.jsx
-// Temporary shim: exposes a FontAwesome-like Icon API but renders lucide icons for now.
-// Once @fortawesome packages are installed, swap implementation here only.
 import React from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Plus, HelpCircle, Search, RefreshCw, Send, Eye, EyeOff, Copy,
-  Trash2, Play, Square, Settings, Database, Globe, Server, Zap,
-  MessageSquare, Layers, List as ListIcon
-} from 'lucide-react';
+  faPlus,
+  faCircleQuestion,
+  faMagnifyingGlass,
+  faArrowsRotate,
+  faPaperPlane,
+  faEye,
+  faEyeSlash,
+  faCopy,
+  faTrashCan,
+  faPlay,
+  faSquare,
+  faGear,
+  faDatabase,
+  faGlobe,
+  faServer,
+  faBolt,
+  faMessage,
+  faLayerGroup,
+  faList
+} from '@fortawesome/free-solid-svg-icons';
 
 const map = {
-  // Common FA names mapped to lucide fallbacks
-  'plus': Plus,
-  'circle-question': HelpCircle,
-  'magnifying-glass': Search,
-  'arrows-rotate': RefreshCw,
-  'paper-plane': Send,
-  'eye': Eye,
-  'eye-slash': EyeOff,
-  'copy': Copy,
-  'trash-can': Trash2,
-  'play': Play,
-  'square': Square,
-  'gear': Settings,
-  'database': Database,
-  'globe': Globe,
-  'server': Server,
-  'bolt': Zap,
-  'message-square': MessageSquare,
-  'layers': Layers,
-  'list': ListIcon,
+  'plus': faPlus,
+  'circle-question': faCircleQuestion,
+  'magnifying-glass': faMagnifyingGlass,
+  'arrows-rotate': faArrowsRotate,
+  'paper-plane': faPaperPlane,
+  'eye': faEye,
+  'eye-slash': faEyeSlash,
+  'copy': faCopy,
+  'trash-can': faTrashCan,
+  'play': faPlay,
+  'square': faSquare,
+  'gear': faGear,
+  'database': faDatabase,
+  'globe': faGlobe,
+  'server': faServer,
+  'bolt': faBolt,
+  'message-square': faMessage,
+  'layers': faLayerGroup,
+  'list': faList,
 };
 
 export default function Icon({ name, size = 16, className = '' }) {
-  const Cmp = map[name] || map['question-circle'] || HelpCircle;
-  return <Cmp size={size} className={className} />;
+  const icon = map[name] || faCircleQuestion;
+  // Use style fontSize to mimic pixel sizing
+  return <FontAwesomeIcon icon={icon} className={className} style={{ fontSize: `${size}px` }} />;
 }

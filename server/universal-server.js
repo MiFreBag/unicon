@@ -4,14 +4,15 @@ const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
+const https = require('https');
 const multer = require('multer');
 const EnhancedRestHandler = require('./handlers/enhanced_rest_handler');
 let verifyJWTMiddleware = null;
 try { verifyJWTMiddleware = require('./auth/middleware').verifyJWT; } catch (_) { /* auth not enabled */ }
 const K8sHandler = require('./handlers/k8s_handler');
 const WSHandler = require('./handlers/ws_handler');
-const SQLHandler = require('./handlers/sql_handler');
+// Lazy-require SQL handler to avoid module loader issues in certain test environments
+let SQLHandler = null;
 const SSHHandler = require('./handlers/ssh_handler');
 const OPCUAHandler = require('./handlers/opcua_handler');
 const GrpcHandler = require('./handlers/grpc_handler');
@@ -117,7 +118,7 @@ const { DB } = (() => {
 const buildState = async () => {
   let db = null;
   if (PERSISTENCE === 'sqlite' && DB) {
-    db = await new DB(SQLITE_DB_PATH).init();
+    try { db = await new DB(SQLITE_DB_PATH).init(); } catch { db = null; }
   }
   const connections = await loadConnections(db);
   return {
@@ -155,6 +156,7 @@ const createApp = (state) => {
   global.broadcast = broadcast;
 
   const app = express();
+  app.locals.__ready = false;
   app.use(createCorsMiddleware(allowedOrigins));
   app.use(express.json({ limit: '10mb' }));
 
@@ -356,9 +358,10 @@ const createApp = (state) => {
         } else if (connection.type === 'websocket') {
           handler = new WSHandler(connection.id, connection.config || {});
           await handler.connect();
-        } else if (connection.type === 'sql') {
-          handler = new SQLHandler(connection.id, connection.config || {});
-          await handler.connect();
+      } else if (connection.type === 'sql') {
+        if (!SQLHandler) SQLHandler = require('./handlers/sql_handler');
+        handler = new SQLHandler(connection.id, connection.config || {});
+        await handler.connect();
         } else if (connection.type === 'opcua' || connection.type === 'opc-ua') {
           handler = new OPCUAHandler(connection.id, connection.config || {});
           await handler.connect();
@@ -456,9 +459,10 @@ const createApp = (state) => {
   });
 
   apiRouter.get('/health', (req, res) => {
+    const status = req.app.locals.__ready ? 'healthy' : 'starting';
     res.json({
       success: true,
-      status: 'healthy',
+      status,
       timestamp: new Date().toISOString(),
       connections: connections.length,
       activeConnections: activeConnections.size,
@@ -1131,8 +1135,21 @@ const startServers = async (state) => {
   }
 
   const app = createApp(appState);
-  const httpPort = Number(process.env.PORT) || PORT;
-  const wsPort = Number(process.env.WS_PORT) || WS_PORT;
+  // Choose free ports in test mode to avoid collisions
+  let httpPort = Number(process.env.PORT) || PORT;
+  let wsPort = Number(process.env.WS_PORT) || WS_PORT;
+  const IN_TEST = process.env.NODE_ENV === 'test' || !!process.env.JEST_WORKER_ID;
+  if (IN_TEST) {
+    // try up to 10 increments to find a free pair
+    for (let i=0;i<10;i++) {
+      const okHttp = await waitPortFree(httpPort);
+      const okWs = await waitPortFree(wsPort);
+      if (okHttp && okWs) break;
+      httpPort += 1; wsPort += 1;
+    }
+    process.env.PORT = String(httpPort);
+    process.env.WS_PORT = String(wsPort);
+  }
   const wsServer = createWebSocketServer(appState.connectedClients, wsPort);
   const http = require('http');
   const server = http.createServer(app);
@@ -1140,6 +1157,7 @@ const startServers = async (state) => {
   console.log(`🚀 HTTP Server running on port ${httpPort}`);
   console.log(`📡 WebSocket Server running on port ${wsPort}`);
   console.log(`🌐 API available at http://localhost:${httpPort}/unicon/api`);
+  app.locals.__ready = true;
 
   const shutdown = () => {
     wsServer.close();
