@@ -11,6 +11,7 @@ import WebSocketWorkspace from '../workspaces/ws/WebSocketWorkspace.jsx';
 import GrpcWorkspace from '../workspaces/grpc/GrpcWorkspace.jsx';
 import CpdWorkspace from '../workspaces/CpdWorkspace.jsx';
 import SqlWorkspace from '../workspaces/sql/SqlWorkspace.jsx';
+import FtpWorkspace from '../workspaces/ftp/FtpWorkspace.jsx';
 import SSHWorkspace from '../workspaces/ssh/SSHWorkspace.jsx';
 import K8sWorkspace from '../workspaces/k8s/K8sWorkspace.jsx';
 import { Globe, Server, Zap, MessageSquare, Layers, Database, List } from 'lucide-react';
@@ -33,6 +34,7 @@ export default function AppShell() {
     grpc: { title: 'gRPC', icon: MessageSquare, component: GrpcWorkspace },
     cpd: { title: 'CPD', icon: Layers, component: CpdWorkspace },
     sql: { title: 'SQL', icon: Database, component: SqlWorkspace },
+    ftp: { title: 'FTP', icon: Database, component: FtpWorkspace },
     'helpers-network': { title: 'Network Tools', icon: Server, component: React.lazy(() => import('../workspaces/helpers/NetworkTools.jsx')) },
     'helpers-format': { title: 'JSON/YAML Tools', icon: Layers, component: React.lazy(() => import('../workspaces/helpers/FormatTools.jsx')) },
   }), []);

@@ -318,7 +318,7 @@ export default function ConnectionList({ openTab }) {
     retryTimers.current.clear();
   }, []);
 
-  const kindMap = { rest:'rest', ws:'ws', grpc:'grpc', cpd:'cpd', sql:'sql', 'opc-ua':'opcua', opcua:'opcua', ssh:'ssh', k8s:'k8s', ftp:'rest' };
+  const kindMap = { rest:'rest', ws:'ws', grpc:'grpc', cpd:'cpd', sql:'sql', 'opc-ua':'opcua', opcua:'opcua', ssh:'ssh', k8s:'k8s', ftp:'ftp' };
   const labelMap = { rest:'REST', ws:'WebSocket', grpc:'gRPC', cpd:'CPD', sql:'SQL', opcua:'OPC UA', 'opc-ua':'OPC UA', ssh:'SSH', k8s:'Kubernetes', ftp:'FTP' };
 
   const targetsFor = (conn) => {
@@ -356,7 +356,10 @@ export default function ConnectionList({ openTab }) {
     openExplicit(conn, chosen.kind);
   };
 
-  const openLabelFor = (conn) => `Open in ${targetsFor(conn)[0].label}`;
+  const openLabelFor = (conn) => {
+    const list = targetsFor(conn)
+    return list.length ? `Open in ${list[0].label}` : 'Open'
+  };
 
   return (
     <div className="bg-white">

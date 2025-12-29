@@ -41,6 +41,30 @@ class FtpHandler {
     const listing = await this.client.list(path)
     return { success: true, data: listing }
   }
+
+  async uploadFromBuffer(buffer, remotePath) {
+    if (!this.connected) throw new Error('FTP not connected')
+    const { Readable } = require('stream')
+    const stream = Readable.from(buffer)
+    await this.client.uploadFrom(stream, remotePath)
+    return { success: true }
+  }
+
+  async downloadToStream(stream, remotePath) {
+    if (!this.connected) throw new Error('FTP not connected')
+    await this.client.downloadTo(stream, remotePath)
+  }
+
+  async remove(remotePath) {
+    if (!this.connected) throw new Error('FTP not connected')
+    try {
+      await this.client.remove(remotePath)
+    } catch (e) {
+      // If it is a directory, try removeDir
+      try { await this.client.removeDir(remotePath) } catch (_) { throw e }
+    }
+    return { success: true }
+  }
 }
 
 module.exports = FtpHandler

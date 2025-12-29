@@ -6,6 +6,9 @@ export default function NetworkTools() {
   const [count, setCount] = useState(4);
   const [pingOut, setPingOut] = useState('');
   const [traceOut, setTraceOut] = useState('');
+  const [dnsName, setDnsName] = useState('example.com');
+  const [dnsType, setDnsType] = useState('A');
+  const [dnsOut, setDnsOut] = useState('');
 
   const [ip, setIp] = useState('192.168.1.10');
   const [cidr, setCidr] = useState(24);
@@ -24,6 +27,14 @@ export default function NetworkTools() {
       const r = await apiPost('/tools/traceroute', { host, maxHops: 20, timeoutMs: 20000 });
       setTraceOut(r.output || JSON.stringify(r));
     } catch (e) { setTraceOut(String(e.message)); }
+  }
+
+  async function doDns() {
+    setDnsOut('Running...');
+    try {
+      const r = await apiPost('/tools/dns', { name: dnsName, rrtype: dnsType });
+      setDnsOut(JSON.stringify(r, null, 2));
+    } catch (e) { setDnsOut(String(e.message)); }
   }
 
   function calcIp() {
@@ -50,10 +61,28 @@ export default function NetworkTools() {
           <button className="px-3 py-1.5 border rounded" onClick={doTrace}>Traceroute</button>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <pre className="border rounded p-2 text-xs bg-gray-50 whitespace-pre-wrap">{pingOut}</pre>
         <pre className="border rounded p-2 text-xs bg-gray-50 whitespace-pre-wrap">{traceOut}</pre>
+        <div>
+          <div className="flex items-end gap-2 mb-2">
+            <div className="flex-1">
+              <label className="block text-sm mb-1">DNS name</label>
+              <input className="w-full border rounded px-2 py-1" value={dnsName} onChange={e=>setDnsName(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Type</label>
+              <select className="border rounded px-2 py-1" value={dnsType} onChange={e=>setDnsType(e.target.value)}>
+                {['A','AAAA','CNAME','TXT','MX','NS','SRV'].map(t=> <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <button className="px-3 py-1.5 border rounded" onClick={doDns}>DNS</button>
+          </div>
+          <pre className="border rounded p-2 text-xs bg-gray-50 whitespace-pre-wrap h-40 overflow-auto">{dnsOut}</pre>
+        </div>
       </div>
+
+      <HttpEcho />
 
       <div className="pt-2 border-t" />
       <h4 className="font-medium">IPv4 Calculator</h4>
@@ -78,6 +107,40 @@ export default function NetworkTools() {
           <div className="border rounded p-2 col-span-3"><div className="text-xs text-gray-500">Host Range</div><div className="font-mono">{calc.firstHost} – {calc.lastHost} ({calc.hosts} hosts)</div></div>
         </div>
       )}
+    </div>
+  );
+}
+
+function HttpEcho() {
+  const [method, setMethod] = React.useState('GET');
+  const [payload, setPayload] = React.useState('{"ping":"pong"}');
+  const [out, setOut] = React.useState('');
+  async function run() {
+    try {
+      const body = method === 'GET' ? {} : JSON.parse(payload || '{}');
+      const res = await apiPost('/tools/http-echo', body);
+      setOut(JSON.stringify(res, null, 2));
+    } catch (e) { setOut(String(e.message)); }
+  }
+  return (
+    <div className="pt-4">
+      <h4 className="font-medium">HTTP Echo</h4>
+      <div className="flex items-end gap-2 mb-2">
+        <div>
+          <label className="block text-sm mb-1">Method</label>
+          <select className="border rounded px-2 py-1" value={method} onChange={e=>setMethod(e.target.value)}>
+            {['GET','POST','PUT','PATCH','DELETE'].map(m=> <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        {method!=='GET' && (
+          <div className="flex-1">
+            <label className="block text-sm mb-1">Body (JSON)</label>
+            <textarea className="w-full border rounded p-2 font-mono text-xs" rows={4} value={payload} onChange={e=>setPayload(e.target.value)} />
+          </div>
+        )}
+        <button className="px-3 py-1.5 border rounded" onClick={run}>Send</button>
+      </div>
+      <pre className="border rounded p-2 text-xs bg-gray-50 whitespace-pre-wrap h-48 overflow-auto">{out}</pre>
     </div>
   );
 }

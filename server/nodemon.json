@@ -1,5 +1,11 @@
 {
-  "watch": ["*.js", "proto"],
-  "ignore": ["data/*"],
-  "ext": "js"
+  "watch": ["universal-server.js", "handlers", "auth", "persistence"],
+  "ignore": [
+    "public/**",
+    "data/**",
+    ".tmp/**",
+    "node_modules/**"
+  ],
+  "ext": "js,json",
+  "delay": "200ms"
 }

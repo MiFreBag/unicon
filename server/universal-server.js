@@ -49,7 +49,17 @@ const parseAllowedOrigins = () => {
     ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean)
     : [];
 
-  return envOrigins.length > 0 ? envOrigins : DEFAULT_ALLOWED_ORIGINS;
+  const base = envOrigins.length > 0 ? envOrigins : DEFAULT_ALLOWED_ORIGINS.slice();
+  // Always include this server's own origin(s) so same-origin requests are not blocked by CORS
+  const port = String(process.env.PORT || PORT);
+  const selfHttp = `http://localhost:${port}`;
+  const selfHttp127 = `http://127.0.0.1:${port}`;
+  const selfHttps = `https://localhost:${port}`;
+  const selfHttps127 = `https://127.0.0.1:${port}`;
+  for (const o of [selfHttp, selfHttp127, selfHttps, selfHttps127]) {
+    if (!base.includes(o)) base.push(o);
+  }
+  return base;
 };
 
 const ensureDataStore = () => {
@@ -1063,6 +1073,82 @@ const createApp = (state) => {
         res.json({ success:true, output: String(stdout||stderr) });
       });
     } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+
+  // FTP upload (multipart/form-data)
+  apiRouter.post('/ftp/upload', upload.single('file'), async (req, res) => {
+    try {
+      const connectionId = req.query.connectionId || req.body?.connectionId;
+      const remoteDir = req.query.path || req.body?.path || '.';
+      if (!req.file) return res.status(400).json({ success: false, error: 'file required' });
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'ftp') return res.status(400).json({ success: false, error: 'FTP connection not active' });
+      const remotePath = remoteDir.endsWith('/') ? `${remoteDir}${req.file.originalname}` : `${remoteDir}/${req.file.originalname}`;
+      const result = await active.handler.uploadFromBuffer(req.file.buffer, remotePath);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // FTP download (binary)
+  apiRouter.get('/ftp/download', async (req, res) => {
+    try {
+      const connectionId = req.query.connectionId;
+      const remotePath = req.query.path;
+      if (!connectionId || !remotePath) return res.status(400).send('connectionId and path required');
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'ftp') return res.status(400).send('FTP connection not active');
+      const filename = path.basename(remotePath);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      await active.handler.downloadToStream(res, remotePath);
+      res.end();
+    } catch (e) {
+      res.status(500).send(e.message || 'download error');
+    }
+  });
+
+  // FTP delete
+  });
+  apiRouter.post('/tools/dns', async (req, res) => {
+    try {
+      const { name, rrtype = 'A', timeoutMs = 8000 } = req.body || {};
+      if (!/^[A-Za-z0-9_.\-]+$/.test(name || '')) return res.status(400).json({ success:false, error:'invalid name' });
+      const dns = require('dns').promises;
+      const controller = new AbortController();
+      const to = setTimeout(() => controller.abort(), timeoutMs);
+      let data;
+      try {
+        switch (String(rrtype).toUpperCase()) {
+          case 'A': data = await dns.resolve4(name); break;
+          case 'AAAA': data = await dns.resolve6(name); break;
+          case 'TXT': data = await dns.resolveTxt(name); break;
+          case 'CNAME': data = await dns.resolveCname(name); break;
+          case 'MX': data = await dns.resolveMx(name); break;
+          case 'NS': data = await dns.resolveNs(name); break;
+          case 'SRV': data = await dns.resolveSrv(name); break;
+          default: return res.status(400).json({ success:false, error:'unsupported rrtype' });
+        }
+      } finally { clearTimeout(to); }
+      res.json({ success:true, name, rrtype: String(rrtype).toUpperCase(), data });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/tools/http-echo', async (req, res) => {
+    try {
+      const headers = Object.fromEntries(Object.entries(req.headers || {}).filter(([k]) => !/^(cookie|authorization)$/i.test(k)));
+      res.json({ success:true, method: req.method, headers, body: req.body });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+
+  app.use('/unicon/api', apiRouter);
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'ftp') return res.status(400).json({ success: false, error: 'FTP connection not active' });
+      const result = await active.handler.remove(p);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
   });
 
   app.use('/unicon/api', apiRouter);

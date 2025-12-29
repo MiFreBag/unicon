@@ -8,7 +8,11 @@
     "dev": "cross-env FEATURE_AUTH=1 AUTH_ENFORCE=0 ENABLE_CSP=0 PORT=3001 WS_PORT=8080 nodemon universal-server.js",
     "pretest": "node -e \"require('fs').mkdirSync('./.tmp/jest',{recursive:true});require('fs').mkdirSync('./.tmp/npm-cache',{recursive:true})\"",
     "test": "cross-env NODE_ENV=test NPM_CONFIG_CACHE=./.tmp/npm-cache TMP=./.tmp/jest TEMP=./.tmp/jest PORT=3101 WS_PORT=8180 jest --runInBand --config jest.config.js --no-cache",
-    "setup": "npm install && node setup.js"
+    "setup": "npm install && node setup.js",
+    "build:client": "npm --prefix ../client run build",
+    "prepare:client": "node scripts/prepare-client.js",
+    "serve:prod": "cross-env ENABLE_CSP=1 FEATURE_AUTH=1 NODE_ENV=production node universal-server.js",
+    "prod": "npm run build:client && npm run prepare:client && npm run serve:prod"
   },
   "keywords": [
     "opcua",
