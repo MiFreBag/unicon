@@ -1,6 +1,6 @@
 # 🗺️ Universal Protocol Test Client - Product Roadmap
 
-*Last Updated: June 2025*
+*Last Updated: December 29, 2025*
 
 ## 🎯 Vision Statement
 
@@ -11,6 +11,13 @@ Transform Unicon into the **industry-leading protocol testing platform** that em
 ## 📅 Release Timeline
 
 ### 🚀 **Phase 1: Core Authentication & Personalization** *(Q3 2025)*
+
+Status: Complete | Owner: TBD
+Acceptance Criteria:
+- MFA supports TOTP and backup codes; device management for MFA
+- OAuth providers: Google, GitHub, Microsoft
+- i18n coverage ≥ 90% UI strings; RTL validated
+- Settings include export/import and organization defaults
 
 #### 🔐 **JWT Authentication System**
 - **User Registration & Login**: Secure account creation with email verification
@@ -40,25 +47,41 @@ Transform Unicon into the **industry-leading protocol testing platform** that em
 
 ### 🔌 **Phase 2: MCP Protocol Integration** *(Q4 2025)*
 
-#### 📡 **MCP Server Support**
+Status: In Progress | Owner: TBD | Risks: Scope; dependency on 2.1 stability
+
+#### 2.1 📡 MCP Server Support
 - **MCP Server Implementation**: Full Model Context Protocol server capabilities
 - **Resource Management**: Expose connection data and test results as MCP resources
 - **Tool Integration**: Provide testing tools to MCP clients (AI assistants, IDEs)
 - **Real-time Streaming**: Live protocol data streaming to connected MCP clients
 - **Security Layer**: Authentication and authorization for MCP connections
 - **API Documentation**: Comprehensive MCP server API documentation
+- Acceptance Criteria:
+  - Resource schema v1 published and versioned
+  - AuthZ model enforced on resource and tool access
+  - Stable streaming at 200 rps with p95 < 300 ms
+  - Public docs draft published
 
-#### 🤖 **MCP Client Support**
+#### 2.2 🤖 MCP Client & AI Integration
 - **External MCP Integration**: Connect to third-party MCP servers
-- **AI Assistant Integration**: Claude, GPT-4, and other AI model connectivity
+- **AI Assistant Integration**: Provider-agnostic interface for multiple models
 - **Smart Testing**: AI-powered test case generation and protocol analysis
 - **Automated Debugging**: Intelligent error detection and resolution suggestions
 - **Context Sharing**: Share testing context with AI assistants for better insights
 - **Protocol Learning**: AI-assisted protocol discovery and configuration
+- Acceptance Criteria:
+  - Minimum 3 providers supported behind provider interface
+  - Redaction policy for sensitive data defined and enforced
+  - Toggle to disable AI features per organization
 
 ---
 
 ### 🏢 **Phase 3: Enterprise & Collaboration** *(Q1 2026)*
+
+Status: Planned | Owner: TBD
+Acceptance Criteria:
+- OIDC SSO with at least one IdP; audit logs retained 365 days
+- Workspace RBAC v1 with roles and permissions
 
 #### 👥 **Team Collaboration Features**
 - **Workspaces**: Shared team workspaces with connection libraries
@@ -88,6 +111,10 @@ Transform Unicon into the **industry-leading protocol testing platform** that em
 
 ### 🔧 **Phase 4: Platform Extensibility** *(Q2 2026)*
 
+Status: Planned | Owner: TBD
+Acceptance Criteria:
+- Plugin SDK v1 published; hot loading; admin plugin management
+
 #### 🔌 **Plugin System Architecture**
 - **Plugin SDK**: Comprehensive development kit for custom protocol handlers
 - **Marketplace**: Community-driven plugin marketplace
@@ -115,6 +142,10 @@ Transform Unicon into the **industry-leading protocol testing platform** that em
 ---
 
 ### 📱 **Phase 5: Mobile & Integration** *(Q3 2026)*
+
+Status: Planned | Owner: TBD
+Acceptance Criteria:
+- iOS and Android beta with offline-capable test runs and push notifications
 
 #### 📱 **Mobile Applications**
 - **iOS Native App**: Full-featured iPhone and iPad application
@@ -200,6 +231,22 @@ Transform Unicon into the **industry-leading protocol testing platform** that em
 - **Response Time**: <100ms average API response time
 - **Scalability**: Support 1,000+ concurrent connections per instance
 - **Security**: Zero critical security vulnerabilities
+
+---
+
+## 🧪 **Performance & Reliability Validation**
+- Load test targets: p50 < 100 ms, p95 < 300 ms; 1,000+ concurrent connections per instance
+- Tooling: k6/Gatling for tests; Grafana/Prometheus dashboards
+- Chaos and SLA drills toward 99.9% availability; runbooks maintained
+- CI job for smoke performance tests on main
+
+## 🔐 **Compliance Plan**
+- SOC 2 and ISO 27001 control mapping and evidence plan
+- Audit log retention ≥ 365 days; immutable storage where feasible
+- Data Processing Addendum (DPA) template; privacy policy alignment (GDPR)
+- Incident response RACI and quarterly tabletop exercises
+- Access reviews and least-privilege RBAC across components
+- Encryption in transit and at rest with documented key management
 
 ---
 
