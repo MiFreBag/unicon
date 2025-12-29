@@ -130,7 +130,7 @@ class OPCUAHandler {
       const writes = value.map((el, i) => ({
         nodeId,
         attributeId: AttributeIds.Value,
-        indexRange: String(i),
+        indexRange: `${i}:${i}`,
         value: new DataValue({ value: this._coerceVariant(el, dt) })
       }));
       const results = await this.session.write(writes);
