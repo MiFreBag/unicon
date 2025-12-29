@@ -1064,11 +1064,33 @@ const createApp = (state) => {
       if (!/^[A-Za-z0-9_\-.:]+$/.test(host || '')) return res.status(400).json({ success:false, error:'invalid host' });
       const n = Math.min(Math.max(parseInt(count,10)||4, 1), 10);
       const isWin = process.platform === 'win32';
-      const cmd = isWin ? `ping -n ${n} ${host}` : `ping -c ${n} ${host}`;
-      const exec = require('child_process').exec;
-      exec(cmd, { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024*1024 }, (err, stdout='', stderr='') => {
-        if (err && !stdout) return res.status(500).json({ success:false, error: err.message, stderr });
-        res.json({ success:true, output: String(stdout||stderr) });
+      const hasIPv6 = /:/.test(host || '');
+      const { spawn } = require('child_process');
+      const args = [];
+      if (isWin) {
+        if (hasIPv6) args.push('-6');
+        args.push('-n', String(n));
+        // Windows timeout is per-echo in ms via -w; keep conservative
+        args.push('-w', String(Math.max(1000, Math.min(timeoutMs, 60000))));
+        args.push(host);
+      } else {
+        if (hasIPv6) args.push('-6');
+        args.push('-c', String(n));
+        // Linux -W expects seconds for each reply timeout
+        const per = Math.max(1, Math.min(Math.floor(timeoutMs/1000), 30));
+        args.push('-W', String(per));
+        args.push(host);
+      }
+      const child = spawn('ping', args, { shell: isWin, windowsHide: true });
+      let out = '';
+      let err = '';
+      const killTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch(_){} }, Math.max(1000, timeoutMs));
+      child.stdout.on('data', d => { out += d.toString('utf8'); });
+      child.stderr.on('data', d => { err += d.toString('utf8'); });
+      child.on('close', (code) => {
+        clearTimeout(killTimer);
+        if (!out && err) return res.status(500).json({ success:false, error: err.trim() });
+        res.json({ success: true, code, output: out || err });
       });
     } catch (e) { res.status(500).json({ success:false, error: e.message }); }
   });

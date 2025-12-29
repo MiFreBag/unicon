@@ -87,12 +87,70 @@ export default function FormatTools() {
       </div>
 
       <div className="pt-2 border-t" />
-      <h4 className="font-medium mb-2">JWT Decode (no verification)</h4>
+      <h4 className="font-medium mb-2">Timestamps</h4>
+      <Timestamps />
+
+      <div className="pt-2 border-t" />
+      <h4 className="font-medium mb-2">Hex / Binary</h4>
+      <HexBin />
+
+      <div className="pt-2 border-t" />
+      <h4 className="font-medium mb-2">JWT Sign (HS256/384/512)</h4>
       <textarea className="w-full h-20 border rounded p-2 font-mono text-sm" value={jwtIn} onChange={e=>setJwtIn(e.target.value)} placeholder="header.payload.signature" />
       <div className="mt-2">
         <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ try{ const parts=jwtIn.split('.'); const b64u=(s)=>s.replace(/-/g,'+').replace(/_/g,'/'); const pad=(s)=>s+"===".slice((s.length+3)%4); const dec=(s)=>JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(pad(b64u(s))), c=>c.charCodeAt(0)))); setJwtOut(JSON.stringify({ header:dec(parts[0]), payload:dec(parts[1]) }, null, 2)); }catch(e){ setJwtOut('Error: '+e.message);} }}>Decode</button>
       </div>
       <pre className="w-full h-40 border rounded p-2 font-mono text-xs bg-gray-50 overflow-auto whitespace-pre-wrap mt-2">{jwtOut}</pre>
+    </div>
+  );
+}
+
+function Timestamps() {
+  const [epoch, setEpoch] = React.useState(String(Math.floor(Date.now()/1000)));
+  const [iso, setIso] = React.useState(new Date().toISOString());
+  return (
+    <div className="grid grid-cols-2 gap-3 items-end">
+      <div>
+        <label className="block text-sm mb-1">Unix epoch (seconds)</label>
+        <input className="w-full border rounded px-2 py-1" value={epoch} onChange={e=>setEpoch(e.target.value)} />
+        <button className="mt-1 px-2 py-1 border rounded text-xs" onClick={()=>{ const s = parseInt(epoch,10); if(Number.isFinite(s)){ setIso(new Date(s*1000).toISOString()); } }}>To ISO</button>
+      </div>
+      <div>
+        <label className="block text-sm mb-1">ISO</label>
+        <input className="w-full border rounded px-2 py-1" value={iso} onChange={e=>setIso(e.target.value)} />
+        <button className="mt-1 px-2 py-1 border rounded text-xs" onClick={()=>{ const d=new Date(iso); if(!isNaN(d.getTime())) setEpoch(String(Math.floor(d.getTime()/1000))); }}>To epoch</button>
+      </div>
+    </div>
+  );
+}
+
+function HexBin() {
+  const [text, setText] = React.useState('Hello');
+  const [hex, setHex] = React.useState('');
+  const [bin, setBin] = React.useState('');
+  return (
+    <div className="grid grid-cols-3 gap-3 items-end">
+      <div>
+        <label className="block text-sm mb-1">Text</label>
+        <textarea className="w-full h-16 border rounded p-2 font-mono text-xs" value={text} onChange={e=>setText(e.target.value)} />
+        <div className="mt-1 space-x-2">
+          <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ setHex(Buffer.from(text,'utf8').toString('hex')); setBin([...Buffer.from(text,'utf8')].map(b=>b.toString(2).padStart(8,'0')).join(' ')); }}>To hex/bin</button>
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm mb-1">Hex</label>
+        <textarea className="w-full h-16 border rounded p-2 font-mono text-xs" value={hex} onChange={e=>setHex(e.target.value)} />
+        <div className="mt-1 space-x-2">
+          <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ try{ setText(Buffer.from(hex.replace(/\s+/g,''),'hex').toString('utf8')); }catch(e){ /* ignore */ } }}>Hex → text</button>
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm mb-1">Binary (8-bit groups)</label>
+        <textarea className="w-full h-16 border rounded p-2 font-mono text-xs" value={bin} onChange={e=>setBin(e.target.value)} />
+        <div className="mt-1 space-x-2">
+          <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ try{ const bytes = bin.trim().split(/\s+/).map(b=>parseInt(b,2)); setText(Buffer.from(bytes).toString('utf8')); }catch(e){ /* ignore */ } }}>Bin → text</button>
+        </div>
+      </div>
     </div>
   );
 }
