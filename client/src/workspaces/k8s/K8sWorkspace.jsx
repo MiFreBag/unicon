@@ -1,26 +1,101 @@
 // client/src/workspaces/k8s/K8sWorkspace.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+// k9s-like Kubernetes management interface
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { listConnections, connectConnection, disconnectConnection, op } from '../../lib/api';
-import { RefreshCw, Play, Square } from 'lucide-react';
+import { 
+  RefreshCw, Play, Square, Server, Box, Layers, Settings, Database,
+  Network, Clock, Shield, HardDrive, Users, Activity, Workflow,
+  ChevronRight, ChevronDown, Terminal, X, Zap
+} from 'lucide-react';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
+import K8sResourceTable from './K8sResourceTable.jsx';
+import K8sYamlViewer from './K8sYamlViewer.jsx';
+import K8sTerminal from './K8sTerminal.jsx';
+
+// Resource type icons and groups
+const RESOURCE_GROUPS = {
+  workloads: {
+    label: 'Workloads',
+    icon: Box,
+    resources: ['pods', 'deployments', 'statefulsets', 'daemonsets', 'replicasets', 'jobs', 'cronjobs'],
+  },
+  network: {
+    label: 'Network',
+    icon: Network,
+    resources: ['services', 'ingresses', 'endpoints'],
+  },
+  config: {
+    label: 'Config',
+    icon: Settings,
+    resources: ['configmaps', 'secrets', 'serviceaccounts'],
+  },
+  storage: {
+    label: 'Storage',
+    icon: HardDrive,
+    resources: ['persistentvolumeclaims', 'persistentvolumes'],
+  },
+  cluster: {
+    label: 'Cluster',
+    icon: Server,
+    resources: ['nodes', 'namespaces', 'events'],
+  },
+};
+
+const RESOURCE_ICONS = {
+  pods: Box,
+  deployments: Layers,
+  services: Network,
+  configmaps: Settings,
+  secrets: Shield,
+  statefulsets: Database,
+  daemonsets: Server,
+  jobs: Workflow,
+  cronjobs: Clock,
+  ingresses: Network,
+  persistentvolumeclaims: HardDrive,
+  persistentvolumes: HardDrive,
+  nodes: Server,
+  namespaces: Layers,
+  events: Activity,
+  replicasets: Layers,
+  endpoints: Network,
+  serviceaccounts: Users,
+};
 
 export default function K8sWorkspace({ connectionId: initialConnectionId }) {
+  // Connection state
   const [connections, setConnections] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [status, setStatus] = useState('disconnected');
+  const [loading, setLoading] = useState(false);
+  
+  // Cluster state
   const [contexts, setContexts] = useState([]);
-  const [current, setCurrent] = useState('');
+  const [currentContext, setCurrentContext] = useState('');
   const [namespaces, setNamespaces] = useState([]);
   const [namespace, setNamespace] = useState('default');
-  const [pods, setPods] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [logs, setLogs] = useState([]);
-  const [logId, setLogId] = useState(null);
-  const [execId, setExecId] = useState(null);
-  const [execCmd, setExecCmd] = useState('/bin/sh');
+  const [allNamespaces, setAllNamespaces] = useState(false);
+  
+  // Resource browsing state
+  const [resourceType, setResourceType] = useState('pods');
+  const [resources, setResources] = useState([]);
+  const [resourceLoading, setResourceLoading] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [expandedGroups, setExpandedGroups] = useState({ workloads: true });
+  
+  // Panels
+  const [yamlPanel, setYamlPanel] = useState(null); // { yaml, name, type, namespace }
+  const [terminalPanel, setTerminalPanel] = useState(null); // { mode, sessionId, logId, pod, container }
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [command, setCommand] = useState('');
+  
+  // Scale dialog
+  const [scaleDialog, setScaleDialog] = useState(null);
 
   const k8sConnections = useMemo(() => (connections || []).filter(c => c.type === 'k8s'), [connections]);
+  const selectedConnection = useMemo(() => k8sConnections.find(c => c.id === selectedId), [k8sConnections, selectedId]);
 
+  // Load connections on mount
   useEffect(() => {
     (async () => {
       const res = await listConnections();
@@ -32,7 +107,8 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
     })();
   }, [initialConnectionId]);
 
-  async function onConnect() {
+  // Connect to cluster
+  const handleConnect = useCallback(async () => {
     if (!selectedId) return;
     setLoading(true);
     try {
@@ -40,194 +116,649 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
       setStatus('connected');
       await refreshContexts();
       await refreshNamespaces();
-    } finally { setLoading(false); }
-  }
+      await loadResources('pods');
+    } catch (e) {
+      console.error('Connect failed:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedId]);
 
-  async function onDisconnect() {
+  // Quick connect - connect immediately on selection if disconnected
+  const handleQuickConnect = useCallback(async (connId) => {
+    setSelectedId(connId);
+    if (status === 'disconnected') {
+      setLoading(true);
+      try {
+        await connectConnection(connId);
+        setStatus('connected');
+        const ctxRes = await op(connId, 'contexts', {});
+        const ctxData = ctxRes?.data || ctxRes;
+        setContexts((ctxData.contexts || []).map(c => c.name || c));
+        setCurrentContext(ctxData.current || '');
+        
+        const nsRes = await op(connId, 'namespaces', {});
+        const nsData = nsRes?.data || nsRes;
+        setNamespaces(nsData.namespaces || []);
+        if (nsData.namespaces?.length) {
+          setNamespace(nsData.namespaces.includes('default') ? 'default' : nsData.namespaces[0]);
+        }
+        
+        await loadResourcesForConnection(connId, 'pods', 'default');
+      } catch (e) {
+        console.error('Quick connect failed:', e);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }, [status]);
+
+  // Disconnect
+  const handleDisconnect = useCallback(async () => {
     if (!selectedId) return;
     setLoading(true);
     try {
       await disconnectConnection(selectedId);
       setStatus('disconnected');
-      setContexts([]); setNamespaces([]);
-    } finally { setLoading(false); }
-  }
+      setContexts([]);
+      setNamespaces([]);
+      setResources([]);
+      setYamlPanel(null);
+      setTerminalPanel(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedId]);
 
-  async function refreshContexts() {
+  // Refresh contexts
+  const refreshContexts = useCallback(async () => {
+    if (!selectedId || status !== 'connected') return;
     const res = await op(selectedId, 'contexts', {});
-    const data = res?.data || res; // handler returns {success:true,data:{contexts,current}}
-    const ctxs = (data.contexts || []).map(c => c.name || c?.name);
-    setContexts(ctxs);
-    setCurrent(data.current || '');
-  }
+    const data = res?.data || res;
+    setContexts((data.contexts || []).map(c => c.name || c));
+    setCurrentContext(data.current || '');
+  }, [selectedId, status]);
 
-  async function useContext(name) {
+  // Switch context
+  const switchContext = useCallback(async (name) => {
+    if (!selectedId || status !== 'connected') return;
     await op(selectedId, 'useContext', { name });
-    await refreshContexts();
+    setCurrentContext(name);
     await refreshNamespaces();
-  }
+    await loadResources(resourceType);
+  }, [selectedId, status, resourceType]);
 
-  async function refreshNamespaces() {
+  // Refresh namespaces
+  const refreshNamespaces = useCallback(async () => {
+    if (!selectedId || status !== 'connected') return;
     const res = await op(selectedId, 'namespaces', {});
     const data = res?.data || res;
     setNamespaces(data.namespaces || []);
-    if (data.namespaces?.length && !data.namespaces.includes(namespace)) setNamespace(data.namespaces[0]);
-  }
+    if (data.namespaces?.length && !data.namespaces.includes(namespace)) {
+      setNamespace(data.namespaces[0]);
+    }
+  }, [selectedId, status, namespace]);
 
-  async function refreshPods() {
-    const res = await op(selectedId, 'pods', { namespace });
-    const data = res?.data || res;
-    setPods(data.pods || []);
-  }
+  // Load resources
+  const loadResources = useCallback(async (type, ns = namespace) => {
+    if (!selectedId || status !== 'connected') return;
+    setResourceLoading(true);
+    setSelectedIndex(-1);
+    try {
+      const res = await op(selectedId, 'listResources', { resourceType: type, namespace: allNamespaces ? undefined : ns });
+      const data = res?.data || res;
+      setResources(data.items || []);
+    } catch (e) {
+      console.error('Load resources failed:', e);
+      setResources([]);
+    } finally {
+      setResourceLoading(false);
+    }
+  }, [selectedId, status, namespace, allNamespaces]);
 
-  // WS: receive logs/exec events
-  useEffect(() => {
-    const ws = new WebSocket(location.origin.replace('http', 'ws'));
-    ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data);
-        if (msg?.type === 'k8s' && msg?.data?.event === 'logLine' && msg.data.connectionId === selectedId) {
-          if (!logId || msg.data.id === logId) {
-            setLogs(prev => [...prev, msg.data.line].slice(-1000));
+  // Helper for quick connect
+  const loadResourcesForConnection = async (connId, type, ns) => {
+    setResourceLoading(true);
+    try {
+      const res = await op(connId, 'listResources', { resourceType: type, namespace: ns });
+      const data = res?.data || res;
+      setResources(data.items || []);
+    } catch (e) {
+      setResources([]);
+    } finally {
+      setResourceLoading(false);
+    }
+  };
+
+  // Handle resource type change
+  const handleResourceTypeChange = useCallback((type) => {
+    setResourceType(type);
+    loadResources(type);
+  }, [loadResources]);
+
+  // Handle namespace change
+  const handleNamespaceChange = useCallback((ns) => {
+    setNamespace(ns);
+    loadResources(resourceType, ns);
+  }, [resourceType, loadResources]);
+
+  // Toggle all namespaces
+  const toggleAllNamespaces = useCallback(() => {
+    setAllNamespaces(prev => {
+      const newVal = !prev;
+      loadResources(resourceType, newVal ? undefined : namespace);
+      return newVal;
+    });
+  }, [resourceType, namespace, loadResources]);
+
+  // Handle resource actions
+  const handleAction = useCallback(async (action, item) => {
+    if (!selectedId || !item) return;
+    
+    switch (action) {
+      case 'describe': {
+        try {
+          const res = await op(selectedId, 'describe', {
+            resourceType,
+            name: item.name,
+            namespace: item.namespace || namespace,
+          });
+          const data = res?.data || res;
+          setYamlPanel({
+            yaml: data.yaml,
+            name: item.name,
+            type: resourceType,
+            namespace: item.namespace || namespace,
+          });
+        } catch (e) {
+          console.error('Describe failed:', e);
+        }
+        break;
+      }
+      
+      case 'logs': {
+        try {
+          const res = await op(selectedId, 'logsStart', {
+            namespace: item.namespace || namespace,
+            pod: item.name,
+            container: item.containers?.[0],
+            tailLines: 500,
+          });
+          const data = res?.data || res;
+          setTerminalPanel({
+            mode: 'logs',
+            logId: data.id,
+            pod: item.name,
+            container: item.containers?.[0],
+          });
+        } catch (e) {
+          console.error('Logs failed:', e);
+        }
+        break;
+      }
+      
+      case 'shell': {
+        try {
+          const res = await op(selectedId, 'execOpen', {
+            namespace: item.namespace || namespace,
+            pod: item.name,
+            container: item.containers?.[0],
+            command: ['/bin/sh'],
+            tty: true,
+          });
+          const data = res?.data || res;
+          setTerminalPanel({
+            mode: 'exec',
+            sessionId: data.id,
+            pod: item.name,
+            container: item.containers?.[0],
+          });
+        } catch (e) {
+          console.error('Exec failed:', e);
+        }
+        break;
+      }
+      
+      case 'scale': {
+        setScaleDialog({
+          name: item.name,
+          namespace: item.namespace || namespace,
+          currentReplicas: parseInt(item.ready?.split('/')[1] || '0', 10),
+        });
+        break;
+      }
+      
+      case 'restart': {
+        if (confirm(`Restart deployment ${item.name}?`)) {
+          try {
+            await op(selectedId, 'restart', {
+              name: item.name,
+              namespace: item.namespace || namespace,
+            });
+            setTimeout(() => loadResources(resourceType), 1000);
+          } catch (e) {
+            console.error('Restart failed:', e);
           }
         }
-      } catch (_) {}
+        break;
+      }
+      
+      case 'delete': {
+        if (confirm(`Delete ${resourceType.slice(0, -1)} ${item.name}?`)) {
+          try {
+            await op(selectedId, 'delete', {
+              resourceType,
+              name: item.name,
+              namespace: item.namespace || namespace,
+            });
+            setTimeout(() => loadResources(resourceType), 500);
+          } catch (e) {
+            console.error('Delete failed:', e);
+          }
+        }
+        break;
+      }
+    }
+  }, [selectedId, resourceType, namespace, loadResources]);
+
+  // Handle scale
+  const handleScale = useCallback(async (replicas) => {
+    if (!scaleDialog || !selectedId) return;
+    try {
+      await op(selectedId, 'scale', {
+        resourceType,
+        name: scaleDialog.name,
+        namespace: scaleDialog.namespace,
+        replicas,
+      });
+      setScaleDialog(null);
+      setTimeout(() => loadResources(resourceType), 1000);
+    } catch (e) {
+      console.error('Scale failed:', e);
+    }
+  }, [selectedId, resourceType, scaleDialog, loadResources]);
+
+  // Close terminal
+  const closeTerminal = useCallback(async () => {
+    if (!terminalPanel || !selectedId) return;
+    try {
+      if (terminalPanel.mode === 'logs' && terminalPanel.logId) {
+        await op(selectedId, 'logsStop', { id: terminalPanel.logId });
+      } else if (terminalPanel.mode === 'exec' && terminalPanel.sessionId) {
+        await op(selectedId, 'execClose', { id: terminalPanel.sessionId });
+      }
+    } catch (_) {}
+    setTerminalPanel(null);
+  }, [selectedId, terminalPanel]);
+
+  // Handle terminal input
+  const handleTerminalInput = useCallback(async (data) => {
+    if (!terminalPanel?.sessionId || !selectedId) return;
+    try {
+      await op(selectedId, 'execInput', { id: terminalPanel.sessionId, data });
+    } catch (_) {}
+  }, [selectedId, terminalPanel]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Command palette
+      if (e.key === ':' && !e.target.matches('input, textarea')) {
+        e.preventDefault();
+        setShowCommandPalette(true);
+        return;
+      }
+      
+      // Refresh
+      if (e.key === 'r' && e.ctrlKey) {
+        e.preventDefault();
+        loadResources(resourceType);
+        return;
+      }
+      
+      // Quick resource switches
+      if (!e.target.matches('input, textarea')) {
+        if (e.key === '1') handleResourceTypeChange('pods');
+        if (e.key === '2') handleResourceTypeChange('deployments');
+        if (e.key === '3') handleResourceTypeChange('services');
+        if (e.key === '4') handleResourceTypeChange('configmaps');
+        if (e.key === '5') handleResourceTypeChange('secrets');
+        if (e.key === '6') handleResourceTypeChange('nodes');
+      }
     };
-    return () => { try { ws.close(); } catch(_){} };
-  }, [selectedId, logId]);
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [resourceType, loadResources, handleResourceTypeChange]);
 
-  async function startLogs(pod, container) {
-    const res = await op(selectedId, 'logsStart', { namespace, pod, container, tailLines: 200 });
-    const id = res?.data?.id || res?.id;
-    setLogId(id);
-    setLogs([]);
-  }
-  async function stopLogs() {
-    if (!logId) return;
-    await op(selectedId, 'logsStop', { id: logId });
-    setLogId(null);
-  }
+  // Handle command
+  const executeCommand = useCallback((cmd) => {
+    const parts = cmd.trim().toLowerCase().split(/\s+/);
+    const [action, ...args] = parts;
+    
+    switch (action) {
+      case 'pods':
+      case 'po':
+        handleResourceTypeChange('pods');
+        break;
+      case 'deployments':
+      case 'deploy':
+        handleResourceTypeChange('deployments');
+        break;
+      case 'services':
+      case 'svc':
+        handleResourceTypeChange('services');
+        break;
+      case 'configmaps':
+      case 'cm':
+        handleResourceTypeChange('configmaps');
+        break;
+      case 'secrets':
+      case 'sec':
+        handleResourceTypeChange('secrets');
+        break;
+      case 'nodes':
+      case 'no':
+        handleResourceTypeChange('nodes');
+        break;
+      case 'ns':
+        if (args[0] && namespaces.includes(args[0])) {
+          handleNamespaceChange(args[0]);
+        }
+        break;
+      case 'ctx':
+        if (args[0] && contexts.includes(args[0])) {
+          switchContext(args[0]);
+        }
+        break;
+      case 'q':
+      case 'quit':
+        handleDisconnect();
+        break;
+    }
+    
+    setShowCommandPalette(false);
+    setCommand('');
+  }, [handleResourceTypeChange, handleNamespaceChange, switchContext, handleDisconnect, namespaces, contexts]);
 
-  async function openExec(pod, container) {
-    const command = execCmd.trim().split(/\s+/);
-    const res = await op(selectedId, 'execOpen', { namespace, pod, container, command, tty: true });
-    const id = res?.data?.id || res?.id;
-    setExecId(id);
-  }
-  async function sendExec(data) {
-    if (!execId) return;
-    await op(selectedId, 'execInput', { id: execId, data });
-  }
-  async function closeExec() {
-    if (!execId) return;
-    await op(selectedId, 'execClose', { id: execId });
-    setExecId(null);
-  }
+  const toggleGroup = (group) => {
+    setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }));
+  };
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-end gap-3">
-        <ConnectionHeader connections={connections} selectedId={selectedId} status={status} />
-        <div>
-          <label className="block text-sm text-gray-600">Kubernetes Connection</label>
-          <select className="border rounded px-3 py-2 min-w-[16rem]" value={selectedId} onChange={e => setSelectedId(e.target.value)}>
-            {k8sConnections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.config?.context || c.config?.kubeconfigPath || c.config?.kubeconfigSource})</option>)}
+    <div className="flex h-full bg-gray-900 text-gray-200 -m-4 rounded-lg overflow-hidden">
+      {/* Sidebar */}
+      <div className="w-56 flex-shrink-0 bg-gray-850 border-r border-gray-700 flex flex-col">
+        {/* Connection selector */}
+        <div className="p-3 border-b border-gray-700">
+          <select
+            value={selectedId}
+            onChange={(e) => handleQuickConnect(e.target.value)}
+            className="w-full px-2 py-1.5 text-sm bg-gray-800 border border-gray-700 rounded text-gray-200 focus:outline-none focus:border-blue-500"
+          >
+            <option value="">Select cluster...</option>
+            {k8sConnections.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
           </select>
+          
+          {selectedId && (
+            <div className="mt-2 flex items-center gap-2">
+              {status === 'disconnected' ? (
+                <button
+                  onClick={handleConnect}
+                  disabled={loading}
+                  className="flex-1 px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded flex items-center justify-center gap-1"
+                >
+                  {loading ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />}
+                  Connect
+                </button>
+              ) : (
+                <button
+                  onClick={handleDisconnect}
+                  disabled={loading}
+                  className="flex-1 px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded flex items-center justify-center gap-1"
+                >
+                  <Square size={12} /> Disconnect
+                </button>
+              )}
+              <span className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-green-500' : 'bg-gray-500'}`} />
+            </div>
+          )}
         </div>
-        <div className="flex gap-2">
-          <button onClick={onConnect} disabled={!selectedId || loading || status==='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
-            {loading ? <RefreshCw size={14} className="animate-spin"/> : <Play size={14}/>} Connect
-          </button>
-          <button onClick={onDisconnect} disabled={!selectedId || loading || status!=='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
-            <Square size={14}/> Disconnect
-          </button>
-          <button onClick={refreshContexts} disabled={status!=='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
-            <RefreshCw size={14}/> Contexts
-          </button>
-          <button onClick={refreshNamespaces} disabled={status!=='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
-            <RefreshCw size={14}/> Namespaces
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-4">
-        <div className="border rounded p-3">
-          <div className="font-medium mb-2">Contexts {current ? <span className="text-xs text-gray-500">(current: {current})</span> : null}</div>
-          <div className="space-y-1">
-            {contexts.map(name => (
-              <div key={name} className="flex items-center justify-between py-1 border-b last:border-b-0">
-                <div className="font-mono text-sm">{name}</div>
-                <button className="px-2 py-1 text-xs border rounded" disabled={name===current} onClick={() => useContext(name)}>Use</button>
-              </div>
-            ))}
-            {contexts.length === 0 && <div className="text-sm text-gray-500">No contexts</div>}
-          </div>
-        </div>
-        <div className="border rounded p-3">
-          <div className="font-medium mb-2">Namespaces</div>
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 mb-2">
-              <select className="border rounded px-2 py-1" value={namespace} onChange={e=>setNamespace(e.target.value)}>
-                {namespaces.map(ns => (<option key={ns} value={ns}>{ns}</option>))}
+        
+        {/* Context & Namespace */}
+        {status === 'connected' && (
+          <div className="p-3 border-b border-gray-700 space-y-2">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Context</label>
+              <select
+                value={currentContext}
+                onChange={(e) => switchContext(e.target.value)}
+                className="w-full px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded text-gray-200"
+              >
+                {contexts.map(ctx => (
+                  <option key={ctx} value={ctx}>{ctx}</option>
+                ))}
               </select>
-              <button className="px-2 py-1 border rounded" onClick={refreshPods}>Load Pods</button>
             </div>
-            {namespaces.length === 0 && <div className="text-sm text-gray-500">No namespaces</div>}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-500">Namespace</label>
+                <button
+                  onClick={toggleAllNamespaces}
+                  className={`text-xs px-1.5 rounded ${allNamespaces ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  All
+                </button>
+              </div>
+              <select
+                value={namespace}
+                onChange={(e) => handleNamespaceChange(e.target.value)}
+                disabled={allNamespaces}
+                className="w-full px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded text-gray-200 disabled:opacity-50"
+              >
+                {namespaces.map(ns => (
+                  <option key={ns} value={ns}>{ns}</option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
-        <div className="border rounded p-3">
-          <div className="font-medium mb-2">Pods in {namespace}</div>
-          <div className="max-h-56 overflow-auto text-sm">
-            {pods.map(p => (
-              <div key={p.name} className="border-b py-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono">{p.name}</span>
-                  <span className="text-xs text-gray-600">{p.phase}</span>
-                </div>
-                <div className="flex gap-2 mt-1">
-                  <button className="px-2 py-1 border rounded text-xs" onClick={()=>startLogs(p.name)}>Logs</button>
-                  <input className="px-2 py-1 border rounded text-xs flex-1" value={execCmd} onChange={e=>setExecCmd(e.target.value)} />
-                  <button className="px-2 py-1 border rounded text-xs" onClick={()=>openExec(p.name)}>Exec</button>
-                </div>
+        )}
+        
+        {/* Resource navigation */}
+        {status === 'connected' && (
+          <div className="flex-1 overflow-auto py-2">
+            {Object.entries(RESOURCE_GROUPS).map(([key, group]) => (
+              <div key={key} className="mb-1">
+                <button
+                  onClick={() => toggleGroup(key)}
+                  className="w-full px-3 py-1 flex items-center gap-2 text-xs text-gray-400 hover:text-white hover:bg-gray-800"
+                >
+                  {expandedGroups[key] ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  <group.icon size={12} />
+                  {group.label}
+                </button>
+                
+                {expandedGroups[key] && (
+                  <div className="ml-4">
+                    {group.resources.map(res => {
+                      const Icon = RESOURCE_ICONS[res] || Box;
+                      return (
+                        <button
+                          key={res}
+                          onClick={() => handleResourceTypeChange(res)}
+                          className={`w-full px-3 py-1 flex items-center gap-2 text-xs rounded-l ${
+                            resourceType === res
+                              ? 'bg-blue-600 text-white'
+                              : 'text-gray-300 hover:bg-gray-800'
+                          }`}
+                        >
+                          <Icon size={12} />
+                          {res}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))}
-            {pods.length === 0 && <div className="text-gray-500">No pods</div>}
           </div>
+        )}
+        
+        {/* Keyboard shortcuts */}
+        <div className="p-2 border-t border-gray-700 text-xs text-gray-500">
+          <div className="flex justify-between"><span>:</span><span>Command</span></div>
+          <div className="flex justify-between"><span>1-6</span><span>Resources</span></div>
+          <div className="flex justify-between"><span>Ctrl+R</span><span>Refresh</span></div>
         </div>
       </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="border rounded p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-medium">Logs {logId ? <span className="text-xs text-gray-500">(stream {logId.slice(0,6)})</span> : null}</div>
-            <div className="flex items-center gap-2">
-              <button className="px-2 py-1 border rounded text-xs" disabled={!logId} onClick={stopLogs}>Stop</button>
-              <button className="px-2 py-1 border rounded text-xs" onClick={()=>setLogs([])}>Clear</button>
-            </div>
+      
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-medium">
+              {resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}
+            </h2>
+            {!allNamespaces && namespace && (
+              <span className="text-xs text-gray-500">in {namespace}</span>
+            )}
+            {allNamespaces && (
+              <span className="text-xs text-blue-400">all namespaces</span>
+            )}
           </div>
-          <pre className="bg-black text-green-400 text-xs p-2 rounded max-h-64 overflow-auto">{logs.join('')}</pre>
+          
+          <div className="flex items-center gap-2">
+            {selectedConnection && (
+              <ConnectionBadge connection={selectedConnection} status={status} />
+            )}
+          </div>
         </div>
-        <div className="border rounded p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-medium">Exec {execId ? <span className="text-xs text-gray-500">(session {execId.slice(0,6)})</span> : null}</div>
-            <div className="flex items-center gap-2">
-              <button className="px-2 py-1 border rounded text-xs" disabled={!execId} onClick={closeExec}>Close</button>
+        
+        {/* Content area */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {status !== 'connected' ? (
+            <div className="flex-1 flex items-center justify-center text-gray-500">
+              <div className="text-center">
+                <Server size={48} className="mx-auto mb-4 opacity-50" />
+                <p className="text-lg mb-2">No cluster connected</p>
+                <p className="text-sm">Select a Kubernetes connection and click Connect</p>
+              </div>
             </div>
-          </div>
-          <textarea className="w-full h-24 border rounded p-2 font-mono text-xs" placeholder="Type and Ctrl+Enter to send"
-                    onKeyDown={(e)=>{ if ((e.ctrlKey||e.metaKey) && e.key==='Enter') { sendExec(e.currentTarget.value + '\n'); e.currentTarget.value=''; } }} />
-          <div className="text-xs text-gray-500 mt-1">Use Ctrl+Enter to send input to the container.</div>
+          ) : (
+            <>
+              {/* Resource table */}
+              <div className={`flex-1 min-h-0 ${yamlPanel || terminalPanel ? 'h-1/2' : ''}`}>
+                <K8sResourceTable
+                  resourceType={resourceType}
+                  items={resources}
+                  loading={resourceLoading}
+                  selectedIndex={selectedIndex}
+                  onSelect={setSelectedIndex}
+                  onAction={handleAction}
+                  onRefresh={() => loadResources(resourceType)}
+                  className="h-full"
+                />
+              </div>
+              
+              {/* YAML Panel */}
+              {yamlPanel && (
+                <div className="h-1/2 border-t border-gray-700">
+                  <K8sYamlViewer
+                    yaml={yamlPanel.yaml}
+                    resourceName={yamlPanel.name}
+                    resourceType={yamlPanel.type}
+                    namespace={yamlPanel.namespace}
+                    onClose={() => setYamlPanel(null)}
+                    readOnly={true}
+                    className="h-full"
+                  />
+                </div>
+              )}
+              
+              {/* Terminal Panel */}
+              {terminalPanel && (
+                <div className="h-1/2 border-t border-gray-700">
+                  <K8sTerminal
+                    connectionId={selectedId}
+                    sessionId={terminalPanel.sessionId}
+                    logId={terminalPanel.logId}
+                    mode={terminalPanel.mode}
+                    onInput={handleTerminalInput}
+                    onClose={closeTerminal}
+                    title={`${terminalPanel.mode === 'logs' ? 'Logs' : 'Shell'}: ${terminalPanel.pod}`}
+                    className="h-full"
+                  />
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function ConnectionHeader({ connections, selectedId, status }) {
-  const sel = (connections || []).find(c => c.id === selectedId) || null;
-  return (
-    <div className="ml-auto">
-      <ConnectionBadge connection={sel || undefined} status={status} />
+      
+      {/* Command Palette */}
+      {showCommandPalette && (
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-32 z-50">
+          <div className="bg-gray-800 rounded-lg shadow-xl w-96 overflow-hidden">
+            <div className="flex items-center px-3 py-2 border-b border-gray-700">
+              <span className="text-gray-400 mr-2">:</span>
+              <input
+                type="text"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') executeCommand(command);
+                  if (e.key === 'Escape') { setShowCommandPalette(false); setCommand(''); }
+                }}
+                placeholder="pods, deploy, svc, ns <name>, ctx <name>, q"
+                className="flex-1 bg-transparent text-white focus:outline-none"
+                autoFocus
+              />
+            </div>
+            <div className="p-2 text-xs text-gray-500">
+              <div>pods/po, deployments/deploy, services/svc, configmaps/cm, secrets/sec, nodes/no</div>
+              <div>ns &lt;name&gt; - switch namespace | ctx &lt;name&gt; - switch context | q - disconnect</div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Scale Dialog */}
+      {scaleDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg shadow-xl w-80 p-4">
+            <h3 className="text-sm font-medium mb-4">Scale {scaleDialog.name}</h3>
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 mb-1">Replicas</label>
+              <input
+                type="number"
+                min="0"
+                defaultValue={scaleDialog.currentReplicas}
+                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white"
+                id="scale-input"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setScaleDialog(null)}
+                className="px-3 py-1.5 text-sm text-gray-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleScale(parseInt(document.getElementById('scale-input').value, 10))}
+                className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 rounded"
+              >
+                Scale
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

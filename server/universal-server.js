@@ -662,6 +662,14 @@ const createApp = (state) => {
             }
             return res.json(result);
           }
+          case 'monitorStart': {
+            const result = await h.monitorStart({ nodeIds: params.nodeIds, options: { publishingInterval: params.publishingInterval, samplingInterval: params.samplingInterval, queueSize: params.queueSize, discardOldest: params.discardOldest, datasetId: params.datasetId || connection.name || 'opcua', logPath: params.logPath } });
+            return res.json(result);
+          }
+          case 'monitorStop': {
+            const result = await h.monitorStop(params.monitorId);
+            return res.json(result);
+          }
           default:
             return res.status(400).json({ success: false, error: `Unknown OPC UA operation: ${operation}` });
         }
@@ -834,6 +842,37 @@ const createApp = (state) => {
             return res.json(h.useContext(params.name));
           case 'namespaces': {
             const result = await h.listNamespaces();
+            return res.json(result);
+          }
+          case 'resourceTypes': {
+            return res.json(h.getResourceTypes());
+          }
+          case 'listResources': {
+            const result = await h.listResources(params.resourceType, params.namespace);
+            return res.json(result);
+          }
+          case 'describe': {
+            const result = await h.describeResource(params.resourceType, params.name, params.namespace);
+            return res.json(result);
+          }
+          case 'delete': {
+            const result = await h.deleteResource(params.resourceType, params.name, params.namespace);
+            return res.json(result);
+          }
+          case 'scale': {
+            const result = await h.scaleResource(params.resourceType, params.name, params.replicas, params.namespace);
+            return res.json(result);
+          }
+          case 'restart': {
+            const result = await h.restartDeployment(params.name, params.namespace);
+            return res.json(result);
+          }
+          case 'applyYaml': {
+            const result = await h.applyYaml(params.yaml, params.namespace);
+            return res.json(result);
+          }
+          case 'kubectl': {
+            const result = await h.kubectl(params.command, params.stdin);
             return res.json(result);
           }
           case 'pods': {
@@ -1340,6 +1379,62 @@ const createApp = (state) => {
     }
   });
 
+  // OPC UA quick-monitor endpoints using datasets from Node-RED config
+  function loadNodeRedDatasets(){
+    try {
+      const p = path.join(__dirname, 'nodered', 'opcua-servers.json');
+      const raw = fs.readFileSync(p, 'utf8');
+      return JSON.parse(raw);
+    } catch { return { servers: [], defaultDatasetId: null }; }
+  }
+  async function ensureOpcuaConnectionForDataset(datasetId, connections, activeConnections, db){
+    const cfg = loadNodeRedDatasets();
+    const ds = (cfg.servers||[]).find(s=>s.id===datasetId) || null;
+    if (!ds) throw new Error('dataset_not_found');
+    const endpointUrl = ds.endpoint;
+    // search existing
+    let conn = connections.find(c => (c.type==='opcua'||c.type==='opc-ua') && c.config && c.config.endpointUrl===endpointUrl);
+    if (!conn){
+      conn = normalizeConnection({ id: uuidv4(), name: datasetId, type: 'opcua', config: { endpointUrl, securityMode: ds.securityMode||'None', securityPolicy: ds.securityPolicy||'None', userIdentity: ds.auth||{ type:'anonymous' } } });
+      connections.push(conn);
+      await persistConnections(connections, db);
+    }
+    // connect if needed
+    if (conn.status !== 'connected' || !activeConnections.get(conn.id)){
+      const handler = new OPCUAHandler(conn.id, conn.config||{});
+      await handler.connect();
+      conn.status = 'connected';
+      activeConnections.set(conn.id, { status:'connected', handler, type: conn.type });
+      await persistConnections(connections, db);
+      broadcast({ type:'connection_status', data:{ connectionId: conn.id, status:'connected' } });
+    }
+    return conn;
+  }
+  apiRouter.post('/opcua/monitor/start', async (req, res) => {
+    try {
+      const { datasetId, nodeIds, publishingInterval, samplingInterval, queueSize, discardOldest, logPath } = req.body||{};
+      if (!datasetId || !Array.isArray(nodeIds) || !nodeIds.length) return res.status(400).json({ success:false, error:'datasetId and nodeIds required' });
+      const conn = await ensureOpcuaConnectionForDataset(datasetId, connections, activeConnections, db);
+      const active = activeConnections.get(conn.id);
+      const result = await active.handler.monitorStart({ nodeIds, options: { publishingInterval, samplingInterval, queueSize, discardOldest, datasetId, logPath } });
+      res.json({ success:true, connectionId: conn.id, ...result });
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/opcua/monitor/stop', async (req, res) => {
+    try {
+      const { connectionId, monitorId } = req.body||{};
+      if (!monitorId) return res.status(400).json({ success:false, error:'monitorId required' });
+      let handler = null;
+      if (connectionId && activeConnections.get(connectionId)) handler = activeConnections.get(connectionId).handler;
+      if (!handler){
+        for (const [cid, ac] of activeConnections){ if (ac?.handler?._monitors?.has(monitorId)) { handler = ac.handler; break; } }
+      }
+      if (!handler) return res.status(404).json({ success:false, error:'monitor_not_found' });
+      const result = await handler.monitorStop(monitorId);
+      res.json(result);
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+
   // Tools endpoints (safe wrappers)
   apiRouter.post('/tools/ping', async (req, res) => {
     try {
@@ -1695,6 +1790,35 @@ const startServers = async (state) => {
   const wsServer = createWebSocketServer(appState.connectedClients, wsPort);
   const http = require('http');
   const server = http.createServer(app);
+
+  // Embed Node-RED runtime under /unicon/flows (admin) and /unicon/flows/api (HTTP nodes)
+  try {
+    const RED = require('node-red');
+    const nrUserDir = path.join(__dirname, 'nodered');
+    try { fs.mkdirSync(nrUserDir, { recursive: true }); } catch (_) {}
+    const nrSettings = {
+      httpAdminRoot: '/unicon/flows',
+      httpNodeRoot: '/unicon/flows/api',
+      userDir: nrUserDir,
+      flowFile: 'flows.json',
+      functionGlobalContext: {
+        jwt: require('jsonwebtoken'),
+        jwtSecret: process.env.NR_JWT_SECRET || 'change-me',
+        opcuaServers: (() => { try { return require(path.join(nrUserDir, 'opcua-servers.json')); } catch { return { servers: [], defaultDatasetId: null }; } })(),
+        apiUsers: (() => { try { return require(path.join(nrUserDir, 'api-users.json')); } catch { return null; } })()
+      },
+      // Allow loading contrib nodes from the server-level node_modules to avoid duplicate installs
+      nodesDir: [ path.join(__dirname, 'node_modules') ]
+    };
+    RED.init(server, nrSettings);
+    app.use(nrSettings.httpAdminRoot, RED.httpAdmin);
+    app.use(nrSettings.httpNodeRoot, RED.httpNode);
+    // Start Node-RED asynchronously; do not block app startup
+    RED.start().then(()=>console.log('🧩 Node-RED embedded at /unicon/flows')).catch(e => console.error('Node-RED failed to start:', e?.message || e));
+  } catch (e) {
+    console.warn('Node-RED not installed; skipping embed:', e && e.message ? e.message : e);
+  }
+
   await new Promise((resolve) => server.listen(httpPort, '0.0.0.0', resolve));
   console.log(`🚀 HTTP Server running on port ${httpPort}`);
   console.log(`📡 WebSocket Server running on port ${wsPort}`);

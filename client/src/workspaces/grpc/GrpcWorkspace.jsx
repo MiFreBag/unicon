@@ -1,6 +1,7 @@
 // client/src/workspaces/grpc/GrpcWorkspace.jsx
 import React, { useState } from 'react';
 import Button from '../../ui/Button.jsx';
+import ConnectionLog from '../../components/ConnectionLog.jsx';
 import Input from '../../ui/Input.jsx';
 
 export default function GrpcWorkspace({ connectionId: initialConnectionId, openTab }) {
@@ -56,6 +57,7 @@ export default function GrpcWorkspace({ connectionId: initialConnectionId, openT
 
   return (
     <div className="p-4 space-y-3">
+      <ConnectionLog connectionId={selectedId} />
       <h3 className="text-lg font-medium">gRPC Workspace</h3>
       <div className="text-sm text-gray-700 mb-2">
         Quick pick:

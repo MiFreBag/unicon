@@ -4,6 +4,7 @@ import { listConnections, connectConnection, disconnectConnection, op, createCon
 import { Play, Square, Terminal, RefreshCw } from 'lucide-react';
 import { Terminal as XTerm } from 'xterm';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
+import ConnectionLog from '../../components/ConnectionLog.jsx';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 
@@ -165,6 +166,9 @@ useEffect(() => {
   // ---- SFTP helpers ----
   const [sftpPath, setSftpPath] = useState('.');
   const [entries, setEntries] = useState([]);
+  const [quickCmd, setQuickCmd] = useState('echo quick-test');
+  const [quickCwd, setQuickCwd] = useState('');
+  const [quickBusy, setQuickBusy] = useState(false);
 
   async function listSftp() {
     if (!selectedId || status !== 'connected') return;
@@ -249,6 +253,27 @@ useEffect(() => {
     }
   }
 
+  async function runQuickExec() {
+    if (!selectedId) return;
+    setQuickBusy(true);
+    let connectedHere = false;
+    try {
+      if (status !== 'connected') {
+        try { await connectConnection(selectedId); connectedHere = true; } catch (e) { setQuickBusy(false); setLogs(prev => [...prev, { ts:new Date().toISOString(), level:'error', message:`Connect failed: ${e.message}` }].slice(-100)); return; }
+      }
+      const res = await op(selectedId, 'exec', { command: quickCmd, cwd: quickCwd || undefined });
+      const data = res?.data || {};
+      if (xtermRef.current && data.stdout) { try { xtermRef.current.write(`\r\n${data.stdout}\r\n`); } catch {} }
+      if (xtermRef.current && data.stderr) { try { xtermRef.current.write(`\r\n[stderr]\r\n${data.stderr}\r\n`); } catch {} }
+      setLogs(prev => [...prev, { ts:new Date().toISOString(), level: (data.code===0?'info':'warn'), message:`exec '${quickCmd}' → code ${data.code}`, hint: data.stderr ? 'stderr present' : '' }].slice(-100));
+    } catch (e) {
+      setLogs(prev => [...prev, { ts:new Date().toISOString(), level:'error', message:`exec error: ${e.message}` }].slice(-100));
+    } finally {
+      if (connectedHere) { try { await disconnectConnection(selectedId); } catch {} }
+      setQuickBusy(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
       {/* Quick Connect */}
@@ -276,6 +301,16 @@ useEffect(() => {
         </div>
       </div>
 
+      {/* Quick Exec */}
+      <div className="border rounded p-3">
+        <div className="text-sm font-medium mb-2">Quick Exec (one-shot)</div>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
+          <input className="md:col-span-4 border rounded px-2 py-1 font-mono text-sm" placeholder="command (e.g., whoami)" value={quickCmd} onChange={e=>setQuickCmd(e.target.value)} />
+          <input className="md:col-span-1 border rounded px-2 py-1 font-mono text-sm" placeholder="cwd (optional)" value={quickCwd} onChange={e=>setQuickCwd(e.target.value)} />
+          <button className="md:col-span-1 px-3 py-1.5 border rounded bg-blue-600 text-white" onClick={runQuickExec} disabled={quickBusy || !selectedId}>{quickBusy ? 'Running…' : 'Run'}</button>
+        </div>
+      </div>
+
       <div className="flex items-end gap-3">
         <div className="text-sm text-gray-700">
           Quick pick:
@@ -300,6 +335,8 @@ useEffect(() => {
           </button>
         </div>
       </div>
+
+      <ConnectionLog connectionId={selectedId} className="-mt-1" />
 
       <div className="border rounded h-[360px] overflow-hidden">
         <div ref={termRef} className="h-full" aria-label="SSH Terminal" />

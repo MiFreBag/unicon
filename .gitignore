@@ -4,5 +4,7 @@ server/node_modules/
 node_modules/
 client/dist/
 server/data/
+server/nodered/node_modules/
+server/nodered/flows_cred.json
 58_UNICON.code-workspace
 server/.tmp/

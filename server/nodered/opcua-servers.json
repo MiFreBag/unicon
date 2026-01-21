@@ -1,0 +1,21 @@
+{
+  "defaultDatasetId": "blr",
+  "servers": [
+    {
+      "id": "blr",
+      "name": "BLR Server",
+      "endpoint": "opc.tcp://10.100.72.101:4840/blr",
+      "securityPolicy": "None",
+      "securityMode": "None",
+      "auth": { "type": "anonymous" }
+    },
+    {
+      "id": "local",
+      "name": "Local OPC UA",
+      "endpoint": "opc.tcp://localhost:4840",
+      "securityPolicy": "None",
+      "securityMode": "None",
+      "auth": { "type": "anonymous" }
+    }
+  ]
+}

@@ -145,6 +145,23 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
     return null;
   }
 
+  const shouldIncludePayload = () => { try { return localStorage.getItem('unicon_log_include_payload') !== '0'; } catch { return true; } };
+  const redactDeep = (input) => {
+    const S = (v) => typeof v === 'string' ? v : JSON.stringify(v);
+    const mask = (v) => v ? '***' : v;
+    const keys = /^(authorization|password|passwd|token|api[-_]?key|secret)$/i;
+    const recur = (v) => {
+      if (!v || typeof v !== 'object') return v;
+      if (Array.isArray(v)) return v.map(recur);
+      const out = {};
+      for (const [k, val] of Object.entries(v)) {
+        out[k] = keys.test(k) ? mask(S(val)) : recur(val);
+      }
+      return out;
+    };
+    try { return recur(input); } catch { return input; }
+  };
+
   const sendRequest = async () => {
     if (!connection || connection.status !== 'connected') {
       alert('Nicht mit Server verbunden');
@@ -152,6 +169,16 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
     }
 
     setIsLoading(true);
+    try {
+      const detail = { connectionId: connection.id, kind: 'request', message: `${request.method} ${request.endpoint}` };
+      if (shouldIncludePayload()) {
+        const hdrs = customHeaders.reduce((acc,h)=>{ if(h.key) acc[h.key]=h.value; return acc; },{});
+        const safe = { headers: redactDeep(hdrs), body: request.body ? redactDeep(JSON.parse(request.body)) : null };
+        const limit = getHintLimit();
+        detail.hint = JSON.stringify(safe).slice(0, limit);
+      }
+      window.dispatchEvent(new CustomEvent('unicon-log', { detail }));
+    } catch(_){}
     setResponse(null);
 
     try {
@@ -174,6 +201,7 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
         }
       };
 
+      const t0 = performance.now();
       const response = await fetch(`${API_BASE}/operation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -181,6 +209,7 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
       });
 
       const result = await response.json();
+      const ms = Math.round(performance.now() - t0);
       
       if (result.success) {
         const responseData = {
@@ -190,6 +219,16 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
         };
         
         setResponse(responseData);
+        try {
+          const detail = { connectionId: connection.id, kind: 'response', message: `${responseData.status} ${responseData.statusText} (${ms}ms)` };
+          const includeResp = (()=>{ try { return localStorage.getItem('unicon_log_include_resp') !== '0'; } catch { return true; } })();
+          if (includeResp) {
+            const safe = redactDeep(responseData.data);
+            const limit = getHintLimit();
+            detail.hint = JSON.stringify(safe).slice(0, limit);
+          }
+          window.dispatchEvent(new CustomEvent('unicon-log', { detail }));
+        } catch(_){}
         
         // Add to history
         setRequestHistory(prev => [responseData, ...prev.slice(0, 49)]); // Keep last 50
@@ -223,6 +262,7 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
       }
     } catch (error) {
       console.error('Request error:', error);
+      try { window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection?.id, kind: 'error', message: `REST request failed: ${error.message}` } })); } catch(_){}
       setResponse({
         status: 0,
         statusText: 'Error',
@@ -273,6 +313,85 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
     if (status >= 400 && status < 500) return 'text-orange-600 bg-orange-100';
     if (status >= 500) return 'text-red-600 bg-red-100';
     return 'text-gray-600 bg-gray-100';
+  };
+
+  const getHintLimit = () => { try { const n = parseInt(localStorage.getItem('unicon_log_hint_limit')||'800',10); return isNaN(n)?800:Math.min(5000,Math.max(100,n)); } catch { return 800; } };
+
+  const copyCurl = () => {
+    try {
+      const base = connection?.config?.baseUrl || '';
+      const join = (a,b) => a.replace(/\/$/,'') + '/' + (b||'/').replace(/^\//,'');
+      const url = join(base, request.endpoint || '/');
+      const method = (request.method || 'GET').toUpperCase();
+      const hdrs = customHeaders.reduce((acc,h)=>{ if(h.key && h.value) acc.push([h.key,h.value]); return acc; }, []);
+      const redact = (k,v) => (/^(authorization|password|passwd|token|api[-_]?key|secret)$/i.test(k) ? '***' : v);
+      const headerFlags = hdrs.map(([k,v]) => `-H ${JSON.stringify(k+': '+redact(k,v))}`);
+      const body = (request.body||'').trim();
+      const dataFlag = body && ['POST','PUT','PATCH','DELETE'].includes(method) ? [`--data ${JSON.stringify(body)}`] : [];
+      const methodFlag = method !== 'GET' ? [`-X ${method}`] : [];
+      const parts = ['curl', ...methodFlag, ...headerFlags, ...dataFlag, JSON.stringify(url)];
+      const cmd = parts.join(' ');
+      navigator.clipboard.writeText(cmd).catch(()=>{});
+      window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection?.id, kind: 'info', message: 'Copied cURL' } }));
+      alert('cURL copied');
+    } catch (e) { alert('Failed to create cURL: ' + (e.message||'error')); }
+  };
+
+  const copyPowerShell = () => {
+    try {
+      const base = connection?.config?.baseUrl || '';
+      const join = (a,b) => a.replace(/\/$/,'') + '/' + (b||'/').replace(/^\//,'');
+      const url = join(base, request.endpoint || '/');
+      const method = (request.method || 'GET').toUpperCase();
+      const hdrsObj = customHeaders.reduce((acc,h)=>{ if(h.key && h.value) acc[h.key]=h.value; return acc; }, {});
+      const redact = (k,v) => (/^(authorization|password|passwd|token|api[-_]?key|secret)$/i.test(k) ? '***' : v);
+      const redacted = Object.fromEntries(Object.entries(hdrsObj).map(([k,v])=>[k,redact(k,v)]));
+      const headersPS = Object.keys(redacted).length ? `$headers = @${JSON.stringify(redacted).replace(/"/g,'"')}`.replace(/@\{/,'@{').replace(/\}/g,'}') : '$headers = @{}';
+      const body = (request.body||'').trim();
+      const bodyPS = body && ['POST','PUT','PATCH','DELETE'].includes(method) ? ` -Body ${JSON.stringify(body)}` : '';
+      const ct = body ? " -ContentType 'application/json'" : '';
+      const cmd = `${headersPS}\nInvoke-RestMethod -Uri '${url}' -Method ${method}${bodyPS} -Headers $headers${ct}`;
+      navigator.clipboard.writeText(cmd).catch(()=>{});
+      window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection?.id, kind: 'info', message: 'Copied PowerShell' } }));
+      alert('PowerShell command copied');
+    } catch (e) { alert('Failed to create PowerShell command: ' + (e.message||'error')); }
+  };
+
+  const exportHAR = () => {
+    try {
+      if (!response) { alert('No response to export'); return; }
+      const base = connection?.config?.baseUrl || '';
+      const join = (a,b) => a.replace(/\/$/,'') + '/' + (b||'/').replace(/^\//,'');
+      const url = join(base, request.endpoint || '/');
+      const hdrs = customHeaders.reduce((acc,h)=>{ if(h.key && h.value) acc.push({ name: h.key, value: h.value }); return acc; }, []);
+      const har = {
+        log: {
+          version: '1.2', creator: { name: 'UNICON', version: '1.0' },
+          entries: [{
+            startedDateTime: new Date(response.timestamp || Date.now()).toISOString(),
+            time: response.duration || 0,
+            request: {
+              method: request.method || 'GET',
+              url,
+              httpVersion: 'HTTP/1.1',
+              headers: hdrs,
+              queryString: [],
+              headersSize: -1, bodySize: (request.body||'').length,
+              postData: ['POST','PUT','PATCH','DELETE'].includes((request.method||'').toUpperCase()) ? { mimeType: 'application/json', text: request.body||'' } : undefined
+            },
+            response: {
+              status: response.status, statusText: response.statusText || '', httpVersion: 'HTTP/1.1',
+              headers: Object.entries(response.headers||{}).map(([k,v])=>({name:k,value:String(v)})),
+              content: { mimeType: 'application/json', text: JSON.stringify(response.data) },
+              headersSize: -1, bodySize: JSON.stringify(response.data||'').length
+            },
+            cache: {}, timings: { send: 0, wait: response.duration||0, receive: 0 }
+          }]
+        }
+      };
+      const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'unicon.har'; a.click(); URL.revokeObjectURL(a.href);
+    } catch (e) { alert('HAR export failed: ' + (e.message||'error')); }
   };
 
   // Auto-send support when opened from quick-pick with tryPath
@@ -550,6 +669,27 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
                     >
                       <Copy size={12} className="mr-1" />
                       Copy
+                    </button>
+                    <button
+                      onClick={() => copyCurl()}
+                      className="inline-flex items-center px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
+                    >
+                      <Copy size={12} className="mr-1" />
+                      Copy cURL
+                    </button>
+                    <button
+                      onClick={() => copyPowerShell()}
+                      className="inline-flex items-center px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
+                    >
+                      <Copy size={12} className="mr-1" />
+                      Copy PowerShell
+                    </button>
+                    <button
+                      onClick={() => exportHAR()}
+                      className="inline-flex items-center px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
+                    >
+                      <Download size={12} className="mr-1" />
+                      Export HAR
                     </button>
                   </div>
                 </div>

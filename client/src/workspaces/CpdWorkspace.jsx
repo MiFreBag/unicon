@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import Button from '../ui/Button.jsx';
 import ConnectionBadge from '../ui/ConnectionBadge.jsx';
+import ConnectionLog from '../components/ConnectionLog.jsx';
 
 import { createConnection } from '../lib/api';
 
@@ -415,6 +416,8 @@ const CpdWorkspace = ({ connection, openTab }) => {
           ))}
         </nav>
       </div>
+
+      <ConnectionLog connectionId={connection?.id} />
 
       {/* Quick pick */}
       <div className="mb-3 text-sm text-gray-700 flex items-center gap-2">

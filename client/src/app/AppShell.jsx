@@ -66,8 +66,32 @@ export default function AppShell() {
     setActiveTabId(id);
     try { localStorage.setItem('last_workspace_kind_v1', kind); } catch {}
   }, [registry]);
+  const [errorCounts, setErrorCounts] = useState(() => { try { return JSON.parse(localStorage.getItem('unicon_tab_error_counts') || '{}'); } catch { return {}; } });
+
+  // Global listener to count errors per tab (by connectionId)
+  React.useEffect(() => {
+    const onLog = (e) => {
+      const d = e.detail || {};
+      if (d.kind !== 'error') return;
+      setErrorCounts((prev) => {
+        const next = { ...prev };
+        tabs.forEach(t => {
+          const cid = t.params?.connectionId;
+          if (cid && cid === d.connectionId) next[t.id] = (next[t.id] || 0) + 1;
+        });
+        return next;
+      });
+    };
+    window.addEventListener('unicon-log', onLog);
+    return () => window.removeEventListener('unicon-log', onLog);
+  }, [tabs]);
+
+  // persist errorCounts
+  React.useEffect(() => { try { localStorage.setItem('unicon_tab_error_counts', JSON.stringify(errorCounts)); } catch (_) {} }, [errorCounts]);
+
   const closeTab = useCallback((id) => {
     setTabs(prev => prev.filter(t => t.id !== id));
+    setErrorCounts(prev => { const next = { ...prev }; delete next[id]; return next; });
     setActiveTabId(prev => {
       if (prev === id) {
         // activate last tab if current was closed
@@ -83,7 +107,7 @@ export default function AppShell() {
     setActiveTabId(null);
   }, []);
 
-  const activateTab = useCallback((id) => setActiveTabId(id), []);
+  const activateTab = useCallback((id) => { setActiveTabId(id); setErrorCounts(prev => ({ ...prev, [id]: 0 })); }, []);
 
   // Persist tabs
   React.useEffect(() => {
@@ -132,7 +156,7 @@ export default function AppShell() {
           <Header onNewConnection={() => openTab('connections')} activeTab={activeTab} />
           {/* Backend status banner */}
           <BackendStatus />
-          <TabStrip tabs={tabs} activeTabId={activeTabId} onClose={closeTab} onCloseAll={closeAllTabs} onActivate={activateTab} />
+          <TabStrip tabs={tabs} activeTabId={activeTabId} onClose={closeTab} onCloseAll={closeAllTabs} onActivate={activateTab} errorCounts={errorCounts} />
           <ContentFrame tabs={tabs} activeTabId={activeTabId} registry={registry} openTab={openTab} />
         </div>
       </div>

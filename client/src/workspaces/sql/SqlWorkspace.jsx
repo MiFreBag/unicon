@@ -6,6 +6,7 @@ import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
 import Spinner from '../../ui/Spinner.jsx';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
+import ConnectionLog from '../../components/ConnectionLog.jsx';
 import { EXAMPLE_PRESETS } from '../../features/examples/presets.js';
 import { createConnection } from '../../lib/api';
 
@@ -67,23 +68,55 @@ export default function SqlWorkspace({ connectionId: initialConnectionId }) {
     } catch { return []; }
   }
 
+  const shouldIncludePayload = () => { try { return localStorage.getItem('unicon_log_include_payload') !== '0'; } catch { return true; } };
+  const redactDeep = (input) => {
+    const mask = (v) => v ? '***' : v;
+    const keys = /^(password|passwd|token|api[-_]?key|secret)$/i;
+    const recur = (v) => {
+      if (!v || typeof v !== 'object') return v;
+      if (Array.isArray(v)) return v.map(recur);
+      const out = {};
+      for (const [k, val] of Object.entries(v)) { out[k] = keys.test(k) ? mask(val) : recur(val); }
+      return out;
+    };
+    try { return recur(input); } catch { return input; }
+  };
+
+  const getHintLimit = () => { try { const n = parseInt(localStorage.getItem('unicon_log_hint_limit')||'800',10); return isNaN(n)?800:Math.min(5000,Math.max(100,n)); } catch { return 800; } };
+
   async function runQuery() {
     if (!selectedId || status !== 'connected') return;
     setLoading(true);
     try {
+      const detail = { connectionId: selectedId, kind: 'sql', message: (sql||'').slice(0,200) };
+      if (shouldIncludePayload()) {
+        const p = redactDeep(parseParams());
+        const limit = getHintLimit();
+        detail.hint = JSON.stringify(p).slice(0, limit);
+      }
+      window.dispatchEvent(new CustomEvent('unicon-log', { detail }));
+    } catch(_){}
+    try {
+      const t0 = performance.now();
       const res = await op(selectedId, 'query', { sql, params: parseParams() });
+      const ms = Math.round(performance.now() - t0);
       const data = res?.data || res;
+      const includeResp = (()=>{ try { return localStorage.getItem('unicon_log_include_resp') !== '0'; } catch { return true; } })();
       if (Array.isArray(data.rows)) {
         setRows(data.rows);
         setMeta({ rowCount: data.rows.length });
         setPage(1);
+        try { if (includeResp) { const limit=getHintLimit(); const preview = JSON.stringify(data.rows.slice(0, 10)); window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: selectedId, kind: 'sql_result', message: `rows=${data.rows.length}`, hint: preview.slice(0, limit) } })); } } catch(_){}
       } else {
         setRows([]);
         setMeta(data);
+        try { if (includeResp) { const limit=getHintLimit(); const preview = JSON.stringify(data); window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: selectedId, kind: 'sql_result', message: 'meta', hint: preview.slice(0, limit) } })); } } catch(_){}
       }
+      try { window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: selectedId, kind: 'info', message: `SQL done (${ms}ms)` } })); } catch(_){}
     } catch (e) {
       setRows([]);
       setMeta({ error: e.message });
+      try { window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: selectedId, kind: 'error', message: `SQL error: ${e.message}` } })); } catch(_){}
     } finally { setLoading(false); }
   }
 
@@ -151,6 +184,8 @@ export default function SqlWorkspace({ connectionId: initialConnectionId }) {
         </div>
         <div className="text-sm text-gray-600">Driver: {driver}</div>
       </div>
+
+      <ConnectionLog connectionId={selectedId} className="-mt-2" />
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">

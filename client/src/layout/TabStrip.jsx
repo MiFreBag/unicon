@@ -2,7 +2,7 @@
 import React from 'react';
 import { X, XOctagon } from 'lucide-react';
 
-export default function TabStrip({ tabs, activeTabId, onActivate, onClose, onCloseAll }) {
+export default function TabStrip({ tabs, activeTabId, onActivate, onClose, onCloseAll, errorCounts = {} }) {
   return (
     <div className="h-10 border-b border-gray-200 bg-white px-2 flex items-end">
       {/* Scrollable tabs */}
@@ -18,7 +18,12 @@ export default function TabStrip({ tabs, activeTabId, onActivate, onClose, onClo
             }`}
             title={tab.title}
           >
-            <span className="text-sm whitespace-nowrap">{tab.title}</span>
+            <span className="text-sm whitespace-nowrap flex items-center gap-1">
+              {tab.title}
+              {!!errorCounts[tab.id] && (
+                <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[10px] bg-red-600 text-white">{errorCounts[tab.id]}</span>
+              )}
+            </span>
             <span className="opacity-50 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}>
               <X size={14} />
             </span>

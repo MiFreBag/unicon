@@ -1,5 +1,29 @@
 // server/handlers/k8s_handler.js
 const k8s = require('@kubernetes/client-node');
+const yaml = require('js-yaml');
+const { spawn } = require('child_process');
+
+// Resource type definitions for k9s-like browsing
+const RESOURCE_TYPES = {
+  pods: { api: 'core', namespaced: true, kind: 'Pod' },
+  deployments: { api: 'apps', namespaced: true, kind: 'Deployment' },
+  services: { api: 'core', namespaced: true, kind: 'Service' },
+  configmaps: { api: 'core', namespaced: true, kind: 'ConfigMap' },
+  secrets: { api: 'core', namespaced: true, kind: 'Secret' },
+  statefulsets: { api: 'apps', namespaced: true, kind: 'StatefulSet' },
+  daemonsets: { api: 'apps', namespaced: true, kind: 'DaemonSet' },
+  jobs: { api: 'batch', namespaced: true, kind: 'Job' },
+  cronjobs: { api: 'batch', namespaced: true, kind: 'CronJob' },
+  ingresses: { api: 'networking', namespaced: true, kind: 'Ingress' },
+  persistentvolumeclaims: { api: 'core', namespaced: true, kind: 'PersistentVolumeClaim' },
+  persistentvolumes: { api: 'core', namespaced: false, kind: 'PersistentVolume' },
+  nodes: { api: 'core', namespaced: false, kind: 'Node' },
+  namespaces: { api: 'core', namespaced: false, kind: 'Namespace' },
+  events: { api: 'core', namespaced: true, kind: 'Event' },
+  replicasets: { api: 'apps', namespaced: true, kind: 'ReplicaSet' },
+  endpoints: { api: 'core', namespaced: true, kind: 'Endpoints' },
+  serviceaccounts: { api: 'core', namespaced: true, kind: 'ServiceAccount' },
+};
 
 class K8sHandler {
   constructor(connectionId, config) {
@@ -7,9 +31,13 @@ class K8sHandler {
     this.config = config || {};
     this.kc = null;
     this.core = null;
+    this.apps = null;
+    this.batch = null;
+    this.networking = null;
     this.currentContext = null;
-    this.logStreams = new Map(); // id -> { cancel }
-    this.execSessions = new Map(); // id -> { stdin, stdout, stderr }
+    this.logStreams = new Map();
+    this.execSessions = new Map();
+    this.watches = new Map();
   }
 
   async connect() {
@@ -24,8 +52,14 @@ class K8sHandler {
         this.kc.loadFromDefault();
       }
       if (context) this.kc.setCurrentContext(context);
+      
+      // Initialize all API clients
       this.core = this.kc.makeApiClient(k8s.CoreV1Api);
+      this.apps = this.kc.makeApiClient(k8s.AppsV1Api);
+      this.batch = this.kc.makeApiClient(k8s.BatchV1Api);
+      this.networking = this.kc.makeApiClient(k8s.NetworkingV1Api);
       this.currentContext = this.kc.getCurrentContext();
+      
       return { success: true, data: { context: this.currentContext } };
     } catch (e) {
       throw new Error(`K8s config load failed: ${e.message}`);
@@ -33,11 +67,19 @@ class K8sHandler {
   }
 
   async disconnect() {
-    // Stop any running streams
+    // Stop all watches
+    for (const { abort } of this.watches.values()) {
+      try { abort && abort(); } catch (_) {}
+    }
+    this.watches.clear();
+    
+    // Stop log streams
     for (const { cancel } of this.logStreams.values()) {
       try { cancel && cancel(); } catch (_) {}
     }
     this.logStreams.clear();
+    
+    // Close exec sessions
     for (const { stdin } of this.execSessions.values()) {
       try { stdin && stdin.end(); } catch (_) {}
     }
@@ -54,8 +96,17 @@ class K8sHandler {
   useContext(name) {
     this.kc.setCurrentContext(name);
     this.currentContext = name;
+    // Reinitialize all API clients for new context
     this.core = this.kc.makeApiClient(k8s.CoreV1Api);
+    this.apps = this.kc.makeApiClient(k8s.AppsV1Api);
+    this.batch = this.kc.makeApiClient(k8s.BatchV1Api);
+    this.networking = this.kc.makeApiClient(k8s.NetworkingV1Api);
     return { success: true, data: { current: name } };
+  }
+
+  // Get available resource types
+  getResourceTypes() {
+    return { success: true, data: { resourceTypes: Object.keys(RESOURCE_TYPES) } };
   }
 
   async listNamespaces() {
@@ -64,6 +115,367 @@ class K8sHandler {
     return { success: true, data: { namespaces: items } };
   }
 
+  // Generic resource listing
+  async listResources(resourceType, namespace = this.config.namespace || 'default') {
+    const config = RESOURCE_TYPES[resourceType];
+    if (!config) throw new Error(`Unknown resource type: ${resourceType}`);
+
+    let res;
+    switch (resourceType) {
+      case 'pods':
+        res = config.namespaced 
+          ? await this.core.listNamespacedPod(namespace)
+          : await this.core.listPodForAllNamespaces();
+        return { success: true, data: { items: this._formatPods(res.body.items || []) } };
+      
+      case 'deployments':
+        res = config.namespaced
+          ? await this.apps.listNamespacedDeployment(namespace)
+          : await this.apps.listDeploymentForAllNamespaces();
+        return { success: true, data: { items: this._formatDeployments(res.body.items || []) } };
+      
+      case 'services':
+        res = config.namespaced
+          ? await this.core.listNamespacedService(namespace)
+          : await this.core.listServiceForAllNamespaces();
+        return { success: true, data: { items: this._formatServices(res.body.items || []) } };
+      
+      case 'configmaps':
+        res = config.namespaced
+          ? await this.core.listNamespacedConfigMap(namespace)
+          : await this.core.listConfigMapForAllNamespaces();
+        return { success: true, data: { items: this._formatConfigMaps(res.body.items || []) } };
+      
+      case 'secrets':
+        res = config.namespaced
+          ? await this.core.listNamespacedSecret(namespace)
+          : await this.core.listSecretForAllNamespaces();
+        return { success: true, data: { items: this._formatSecrets(res.body.items || []) } };
+      
+      case 'statefulsets':
+        res = config.namespaced
+          ? await this.apps.listNamespacedStatefulSet(namespace)
+          : await this.apps.listStatefulSetForAllNamespaces();
+        return { success: true, data: { items: this._formatStatefulSets(res.body.items || []) } };
+      
+      case 'daemonsets':
+        res = config.namespaced
+          ? await this.apps.listNamespacedDaemonSet(namespace)
+          : await this.apps.listDaemonSetForAllNamespaces();
+        return { success: true, data: { items: this._formatDaemonSets(res.body.items || []) } };
+      
+      case 'jobs':
+        res = config.namespaced
+          ? await this.batch.listNamespacedJob(namespace)
+          : await this.batch.listJobForAllNamespaces();
+        return { success: true, data: { items: this._formatJobs(res.body.items || []) } };
+      
+      case 'cronjobs':
+        res = config.namespaced
+          ? await this.batch.listNamespacedCronJob(namespace)
+          : await this.batch.listCronJobForAllNamespaces();
+        return { success: true, data: { items: this._formatCronJobs(res.body.items || []) } };
+      
+      case 'ingresses':
+        res = config.namespaced
+          ? await this.networking.listNamespacedIngress(namespace)
+          : await this.networking.listIngressForAllNamespaces();
+        return { success: true, data: { items: this._formatIngresses(res.body.items || []) } };
+      
+      case 'persistentvolumeclaims':
+        res = config.namespaced
+          ? await this.core.listNamespacedPersistentVolumeClaim(namespace)
+          : await this.core.listPersistentVolumeClaimForAllNamespaces();
+        return { success: true, data: { items: this._formatPVCs(res.body.items || []) } };
+      
+      case 'persistentvolumes':
+        res = await this.core.listPersistentVolume();
+        return { success: true, data: { items: this._formatPVs(res.body.items || []) } };
+      
+      case 'nodes':
+        res = await this.core.listNode();
+        return { success: true, data: { items: this._formatNodes(res.body.items || []) } };
+      
+      case 'namespaces':
+        res = await this.core.listNamespace();
+        return { success: true, data: { items: this._formatNamespaces(res.body.items || []) } };
+      
+      case 'events':
+        res = config.namespaced
+          ? await this.core.listNamespacedEvent(namespace)
+          : await this.core.listEventForAllNamespaces();
+        return { success: true, data: { items: this._formatEvents(res.body.items || []) } };
+      
+      case 'replicasets':
+        res = config.namespaced
+          ? await this.apps.listNamespacedReplicaSet(namespace)
+          : await this.apps.listReplicaSetForAllNamespaces();
+        return { success: true, data: { items: this._formatReplicaSets(res.body.items || []) } };
+      
+      case 'endpoints':
+        res = config.namespaced
+          ? await this.core.listNamespacedEndpoints(namespace)
+          : await this.core.listEndpointsForAllNamespaces();
+        return { success: true, data: { items: this._formatEndpoints(res.body.items || []) } };
+      
+      case 'serviceaccounts':
+        res = config.namespaced
+          ? await this.core.listNamespacedServiceAccount(namespace)
+          : await this.core.listServiceAccountForAllNamespaces();
+        return { success: true, data: { items: this._formatServiceAccounts(res.body.items || []) } };
+      
+      default:
+        throw new Error(`Resource type ${resourceType} not implemented`);
+    }
+  }
+
+  // Describe resource (get YAML)
+  async describeResource(resourceType, name, namespace = this.config.namespace || 'default') {
+    const config = RESOURCE_TYPES[resourceType];
+    if (!config) throw new Error(`Unknown resource type: ${resourceType}`);
+
+    let res;
+    switch (resourceType) {
+      case 'pods':
+        res = await this.core.readNamespacedPod(name, namespace);
+        break;
+      case 'deployments':
+        res = await this.apps.readNamespacedDeployment(name, namespace);
+        break;
+      case 'services':
+        res = await this.core.readNamespacedService(name, namespace);
+        break;
+      case 'configmaps':
+        res = await this.core.readNamespacedConfigMap(name, namespace);
+        break;
+      case 'secrets':
+        res = await this.core.readNamespacedSecret(name, namespace);
+        break;
+      case 'statefulsets':
+        res = await this.apps.readNamespacedStatefulSet(name, namespace);
+        break;
+      case 'daemonsets':
+        res = await this.apps.readNamespacedDaemonSet(name, namespace);
+        break;
+      case 'jobs':
+        res = await this.batch.readNamespacedJob(name, namespace);
+        break;
+      case 'cronjobs':
+        res = await this.batch.readNamespacedCronJob(name, namespace);
+        break;
+      case 'ingresses':
+        res = await this.networking.readNamespacedIngress(name, namespace);
+        break;
+      case 'persistentvolumeclaims':
+        res = await this.core.readNamespacedPersistentVolumeClaim(name, namespace);
+        break;
+      case 'persistentvolumes':
+        res = await this.core.readPersistentVolume(name);
+        break;
+      case 'nodes':
+        res = await this.core.readNode(name);
+        break;
+      case 'namespaces':
+        res = await this.core.readNamespace(name);
+        break;
+      case 'replicasets':
+        res = await this.apps.readNamespacedReplicaSet(name, namespace);
+        break;
+      case 'serviceaccounts':
+        res = await this.core.readNamespacedServiceAccount(name, namespace);
+        break;
+      default:
+        throw new Error(`Describe not implemented for ${resourceType}`);
+    }
+
+    // Clean up managed fields for cleaner YAML
+    const obj = res.body;
+    if (obj.metadata) {
+      delete obj.metadata.managedFields;
+    }
+
+    return { 
+      success: true, 
+      data: { 
+        resource: obj,
+        yaml: yaml.dump(obj, { indent: 2, lineWidth: -1 })
+      } 
+    };
+  }
+
+  // Delete resource
+  async deleteResource(resourceType, name, namespace = this.config.namespace || 'default') {
+    const config = RESOURCE_TYPES[resourceType];
+    if (!config) throw new Error(`Unknown resource type: ${resourceType}`);
+
+    switch (resourceType) {
+      case 'pods':
+        await this.core.deleteNamespacedPod(name, namespace);
+        break;
+      case 'deployments':
+        await this.apps.deleteNamespacedDeployment(name, namespace);
+        break;
+      case 'services':
+        await this.core.deleteNamespacedService(name, namespace);
+        break;
+      case 'configmaps':
+        await this.core.deleteNamespacedConfigMap(name, namespace);
+        break;
+      case 'secrets':
+        await this.core.deleteNamespacedSecret(name, namespace);
+        break;
+      case 'statefulsets':
+        await this.apps.deleteNamespacedStatefulSet(name, namespace);
+        break;
+      case 'daemonsets':
+        await this.apps.deleteNamespacedDaemonSet(name, namespace);
+        break;
+      case 'jobs':
+        await this.batch.deleteNamespacedJob(name, namespace);
+        break;
+      case 'cronjobs':
+        await this.batch.deleteNamespacedCronJob(name, namespace);
+        break;
+      case 'ingresses':
+        await this.networking.deleteNamespacedIngress(name, namespace);
+        break;
+      case 'persistentvolumeclaims':
+        await this.core.deleteNamespacedPersistentVolumeClaim(name, namespace);
+        break;
+      case 'persistentvolumes':
+        await this.core.deletePersistentVolume(name);
+        break;
+      case 'namespaces':
+        await this.core.deleteNamespace(name);
+        break;
+      case 'replicasets':
+        await this.apps.deleteNamespacedReplicaSet(name, namespace);
+        break;
+      case 'serviceaccounts':
+        await this.core.deleteNamespacedServiceAccount(name, namespace);
+        break;
+      default:
+        throw new Error(`Delete not implemented for ${resourceType}`);
+    }
+
+    return { success: true, data: { deleted: name } };
+  }
+
+  // Scale deployment/statefulset
+  async scaleResource(resourceType, name, replicas, namespace = this.config.namespace || 'default') {
+    if (!['deployments', 'statefulsets', 'replicasets'].includes(resourceType)) {
+      throw new Error(`Scale not supported for ${resourceType}`);
+    }
+
+    const patch = { spec: { replicas: parseInt(replicas, 10) } };
+    const options = { headers: { 'Content-Type': 'application/strategic-merge-patch+json' } };
+
+    switch (resourceType) {
+      case 'deployments':
+        await this.apps.patchNamespacedDeployment(name, namespace, patch, undefined, undefined, undefined, undefined, undefined, options);
+        break;
+      case 'statefulsets':
+        await this.apps.patchNamespacedStatefulSet(name, namespace, patch, undefined, undefined, undefined, undefined, undefined, options);
+        break;
+      case 'replicasets':
+        await this.apps.patchNamespacedReplicaSet(name, namespace, patch, undefined, undefined, undefined, undefined, undefined, options);
+        break;
+    }
+
+    return { success: true, data: { scaled: name, replicas } };
+  }
+
+  // Restart deployment (rollout restart)
+  async restartDeployment(name, namespace = this.config.namespace || 'default') {
+    const patch = {
+      spec: {
+        template: {
+          metadata: {
+            annotations: {
+              'kubectl.kubernetes.io/restartedAt': new Date().toISOString()
+            }
+          }
+        }
+      }
+    };
+    const options = { headers: { 'Content-Type': 'application/strategic-merge-patch+json' } };
+    await this.apps.patchNamespacedDeployment(name, namespace, patch, undefined, undefined, undefined, undefined, undefined, options);
+    return { success: true, data: { restarted: name } };
+  }
+
+  // Apply YAML (create or update resource)
+  async applyYaml(yamlContent, namespace = this.config.namespace || 'default') {
+    const docs = yaml.loadAll(yamlContent);
+    const results = [];
+
+    for (const doc of docs) {
+      if (!doc || !doc.kind) continue;
+      
+      const kind = doc.kind.toLowerCase();
+      const name = doc.metadata?.name;
+      const ns = doc.metadata?.namespace || namespace;
+      
+      try {
+        // Try to get existing resource first
+        let exists = false;
+        try {
+          await this.describeResource(kind + 's', name, ns);
+          exists = true;
+        } catch (_) {}
+
+        // Use kubectl for simplicity - handles all resource types
+        const result = await this.kubectl(`apply -f - -n ${ns}`, yamlContent);
+        results.push({ name, kind, action: exists ? 'updated' : 'created', ...result });
+      } catch (e) {
+        results.push({ name, kind, error: e.message });
+      }
+    }
+
+    return { success: true, data: { results } };
+  }
+
+  // Execute kubectl command
+  async kubectl(args, stdin = null) {
+    return new Promise((resolve, reject) => {
+      const kubeconfigArg = this.config.kubeconfigPath 
+        ? `--kubeconfig="${this.config.kubeconfigPath}"` 
+        : '';
+      const contextArg = this.currentContext 
+        ? `--context=${this.currentContext}` 
+        : '';
+      
+      const fullCmd = `kubectl ${kubeconfigArg} ${contextArg} ${args}`.trim();
+      const proc = spawn('kubectl', [...(kubeconfigArg ? ['--kubeconfig', this.config.kubeconfigPath] : []), ...(contextArg ? ['--context', this.currentContext] : []), ...args.split(/\s+/)], {
+        shell: true,
+        windowsHide: true
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data) => { stdout += data.toString(); });
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      if (stdin) {
+        proc.stdin.write(stdin);
+        proc.stdin.end();
+      }
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true, data: { output: stdout.trim() } });
+        } else {
+          reject(new Error(stderr || `kubectl exited with code ${code}`));
+        }
+      });
+
+      proc.on('error', (err) => {
+        reject(new Error(`kubectl spawn error: ${err.message}`));
+      });
+    });
+  }
+
+  // Legacy listPods for backward compatibility
   async listPods(namespace = this.config.namespace || 'default') {
     const res = await this.core.listNamespacedPod(namespace);
     const pods = (res.body.items || []).map(p => ({
@@ -85,7 +497,6 @@ class K8sHandler {
       this._broadcast({ type: 'k8s', data: { event: 'logLine', connectionId: this.connectionId, id, pod, container, line } });
     });
     const cancel = await log.log(namespace, pod, container || undefined, stream, undefined, true, tailLines, false).catch((e) => { throw new Error(`logs failed: ${e.message}`); });
-    // @kubernetes/client-node returns a request; set cancel function
     const abort = () => {
       try { cancel && cancel.abort && cancel.abort(); } catch (_) {}
       try { stream.end(); } catch (_) {}
@@ -134,9 +545,280 @@ class K8sHandler {
     return { success: true };
   }
 
+  // Formatting helpers for k9s-like display
+  _formatPods(items) {
+    return items.map(p => {
+      const containers = p.spec?.containers || [];
+      const containerStatuses = p.status?.containerStatuses || [];
+      const ready = containerStatuses.filter(c => c.ready).length;
+      const restarts = containerStatuses.reduce((sum, c) => sum + (c.restartCount || 0), 0);
+      const age = this._getAge(p.metadata?.creationTimestamp);
+      
+      return {
+        name: p.metadata?.name,
+        namespace: p.metadata?.namespace,
+        ready: `${ready}/${containers.length}`,
+        status: p.status?.phase,
+        restarts,
+        age,
+        node: p.spec?.nodeName,
+        ip: p.status?.podIP,
+        containers: containers.map(c => c.name),
+      };
+    });
+  }
+
+  _formatDeployments(items) {
+    return items.map(d => {
+      const ready = d.status?.readyReplicas || 0;
+      const desired = d.spec?.replicas || 0;
+      const upToDate = d.status?.updatedReplicas || 0;
+      const available = d.status?.availableReplicas || 0;
+      
+      return {
+        name: d.metadata?.name,
+        namespace: d.metadata?.namespace,
+        ready: `${ready}/${desired}`,
+        upToDate,
+        available,
+        age: this._getAge(d.metadata?.creationTimestamp),
+        images: (d.spec?.template?.spec?.containers || []).map(c => c.image).join(', '),
+      };
+    });
+  }
+
+  _formatServices(items) {
+    return items.map(s => ({
+      name: s.metadata?.name,
+      namespace: s.metadata?.namespace,
+      type: s.spec?.type,
+      clusterIP: s.spec?.clusterIP,
+      externalIP: (s.status?.loadBalancer?.ingress || []).map(i => i.ip || i.hostname).join(', ') || '<none>',
+      ports: (s.spec?.ports || []).map(p => `${p.port}${p.nodePort ? ':' + p.nodePort : ''}/${p.protocol}`).join(', '),
+      age: this._getAge(s.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatConfigMaps(items) {
+    return items.map(cm => ({
+      name: cm.metadata?.name,
+      namespace: cm.metadata?.namespace,
+      data: Object.keys(cm.data || {}).length,
+      age: this._getAge(cm.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatSecrets(items) {
+    return items.map(s => ({
+      name: s.metadata?.name,
+      namespace: s.metadata?.namespace,
+      type: s.type,
+      data: Object.keys(s.data || {}).length,
+      age: this._getAge(s.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatStatefulSets(items) {
+    return items.map(ss => ({
+      name: ss.metadata?.name,
+      namespace: ss.metadata?.namespace,
+      ready: `${ss.status?.readyReplicas || 0}/${ss.spec?.replicas || 0}`,
+      age: this._getAge(ss.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatDaemonSets(items) {
+    return items.map(ds => ({
+      name: ds.metadata?.name,
+      namespace: ds.metadata?.namespace,
+      desired: ds.status?.desiredNumberScheduled || 0,
+      current: ds.status?.currentNumberScheduled || 0,
+      ready: ds.status?.numberReady || 0,
+      upToDate: ds.status?.updatedNumberScheduled || 0,
+      available: ds.status?.numberAvailable || 0,
+      age: this._getAge(ds.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatJobs(items) {
+    return items.map(j => ({
+      name: j.metadata?.name,
+      namespace: j.metadata?.namespace,
+      completions: `${j.status?.succeeded || 0}/${j.spec?.completions || 1}`,
+      duration: j.status?.completionTime && j.status?.startTime 
+        ? this._getDuration(j.status.startTime, j.status.completionTime)
+        : '-',
+      age: this._getAge(j.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatCronJobs(items) {
+    return items.map(cj => ({
+      name: cj.metadata?.name,
+      namespace: cj.metadata?.namespace,
+      schedule: cj.spec?.schedule,
+      suspend: cj.spec?.suspend ? 'True' : 'False',
+      active: (cj.status?.active || []).length,
+      lastSchedule: cj.status?.lastScheduleTime ? this._getAge(cj.status.lastScheduleTime) : '<none>',
+      age: this._getAge(cj.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatIngresses(items) {
+    return items.map(i => {
+      const rules = i.spec?.rules || [];
+      const hosts = rules.map(r => r.host || '*').join(', ');
+      const addresses = (i.status?.loadBalancer?.ingress || []).map(a => a.ip || a.hostname).join(', ');
+      
+      return {
+        name: i.metadata?.name,
+        namespace: i.metadata?.namespace,
+        class: i.spec?.ingressClassName || '<none>',
+        hosts,
+        address: addresses || '<none>',
+        ports: rules.some(r => (r.http?.paths || []).length > 0) ? '80' : '',
+        age: this._getAge(i.metadata?.creationTimestamp),
+      };
+    });
+  }
+
+  _formatPVCs(items) {
+    return items.map(pvc => ({
+      name: pvc.metadata?.name,
+      namespace: pvc.metadata?.namespace,
+      status: pvc.status?.phase,
+      volume: pvc.spec?.volumeName || '<none>',
+      capacity: pvc.status?.capacity?.storage || '<none>',
+      accessModes: (pvc.status?.accessModes || []).join(', '),
+      storageClass: pvc.spec?.storageClassName || '<none>',
+      age: this._getAge(pvc.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatPVs(items) {
+    return items.map(pv => ({
+      name: pv.metadata?.name,
+      capacity: pv.spec?.capacity?.storage,
+      accessModes: (pv.spec?.accessModes || []).join(', '),
+      reclaimPolicy: pv.spec?.persistentVolumeReclaimPolicy,
+      status: pv.status?.phase,
+      claim: pv.spec?.claimRef ? `${pv.spec.claimRef.namespace}/${pv.spec.claimRef.name}` : '<none>',
+      storageClass: pv.spec?.storageClassName || '<none>',
+      age: this._getAge(pv.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatNodes(items) {
+    return items.map(n => {
+      const conditions = n.status?.conditions || [];
+      const ready = conditions.find(c => c.type === 'Ready');
+      const roles = Object.keys(n.metadata?.labels || {})
+        .filter(l => l.startsWith('node-role.kubernetes.io/'))
+        .map(l => l.replace('node-role.kubernetes.io/', ''))
+        .join(', ') || '<none>';
+      
+      return {
+        name: n.metadata?.name,
+        status: ready?.status === 'True' ? 'Ready' : 'NotReady',
+        roles,
+        age: this._getAge(n.metadata?.creationTimestamp),
+        version: n.status?.nodeInfo?.kubeletVersion,
+        internalIP: (n.status?.addresses || []).find(a => a.type === 'InternalIP')?.address,
+        externalIP: (n.status?.addresses || []).find(a => a.type === 'ExternalIP')?.address || '<none>',
+        os: n.status?.nodeInfo?.osImage,
+        kernel: n.status?.nodeInfo?.kernelVersion,
+        container: n.status?.nodeInfo?.containerRuntimeVersion,
+      };
+    });
+  }
+
+  _formatNamespaces(items) {
+    return items.map(ns => ({
+      name: ns.metadata?.name,
+      status: ns.status?.phase,
+      age: this._getAge(ns.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatEvents(items) {
+    return items.sort((a, b) => new Date(b.lastTimestamp || b.eventTime) - new Date(a.lastTimestamp || a.eventTime)).map(e => ({
+      namespace: e.metadata?.namespace,
+      lastSeen: this._getAge(e.lastTimestamp || e.eventTime),
+      type: e.type,
+      reason: e.reason,
+      object: `${e.involvedObject?.kind}/${e.involvedObject?.name}`,
+      message: e.message,
+    }));
+  }
+
+  _formatReplicaSets(items) {
+    return items.map(rs => ({
+      name: rs.metadata?.name,
+      namespace: rs.metadata?.namespace,
+      desired: rs.spec?.replicas || 0,
+      current: rs.status?.replicas || 0,
+      ready: rs.status?.readyReplicas || 0,
+      age: this._getAge(rs.metadata?.creationTimestamp),
+    }));
+  }
+
+  _formatEndpoints(items) {
+    return items.map(ep => {
+      const addresses = (ep.subsets || []).flatMap(s => 
+        (s.addresses || []).flatMap(a => 
+          (s.ports || []).map(p => `${a.ip}:${p.port}`)
+        )
+      ).join(', ');
+      
+      return {
+        name: ep.metadata?.name,
+        namespace: ep.metadata?.namespace,
+        endpoints: addresses || '<none>',
+        age: this._getAge(ep.metadata?.creationTimestamp),
+      };
+    });
+  }
+
+  _formatServiceAccounts(items) {
+    return items.map(sa => ({
+      name: sa.metadata?.name,
+      namespace: sa.metadata?.namespace,
+      secrets: (sa.secrets || []).length,
+      age: this._getAge(sa.metadata?.creationTimestamp),
+    }));
+  }
+
+  _getAge(timestamp) {
+    if (!timestamp) return '<unknown>';
+    const now = new Date();
+    const then = new Date(timestamp);
+    const diffMs = now - then;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+
+    if (diffDay > 0) return `${diffDay}d`;
+    if (diffHour > 0) return `${diffHour}h`;
+    if (diffMin > 0) return `${diffMin}m`;
+    return `${diffSec}s`;
+  }
+
+  _getDuration(start, end) {
+    const diffMs = new Date(end) - new Date(start);
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    
+    if (diffHour > 0) return `${diffHour}h${diffMin % 60}m`;
+    if (diffMin > 0) return `${diffMin}m${diffSec % 60}s`;
+    return `${diffSec}s`;
+  }
+
   _broadcast(message) {
     if (global.broadcast) global.broadcast(message);
   }
 }
 
 module.exports = K8sHandler;
+module.exports.RESOURCE_TYPES = RESOURCE_TYPES;

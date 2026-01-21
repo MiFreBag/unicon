@@ -10,6 +10,8 @@ class OPCUAHandler {
     this.isConnected = false;
     // Cache of node metadata: { dataType, valueRank, arrayDimensions }
     this._metaCache = new Map();
+    // monitor sessions by id -> { subscription, items: MonitoredItem[], logPath }
+    this._monitors = new Map();
   }
 
   async connect() {
@@ -71,6 +73,9 @@ class OPCUAHandler {
   }
 
   async disconnect() {
+    try {
+      for (const [id] of this._monitors) { try { await this.monitorStop(id); } catch(_){} }
+    } catch {}
     try { if (this.session) await this.session.close(); } catch {}
     try { if (this.client) await this.client.disconnect(); } catch {}
     this.client = null;
@@ -139,6 +144,62 @@ class OPCUAHandler {
     }
 
     return { success: ok, statusCode: scStr };
+  }
+
+  async monitorStart({ nodeIds = [], options = {} }) {
+    if (!this.session) throw new Error('Not connected');
+    const ids = Array.isArray(nodeIds) ? nodeIds.filter(Boolean) : [];
+    if (!ids.length) throw new Error('nodeIds required');
+    const { publishingInterval = 1000, samplingInterval = 1000, queueSize = 10, discardOldest = true, datasetId = 'opcua', logPath } = options || {};
+    const { Subscription, TimestampsToReturn, MonitoringMode, ReadValueIdOptions } = require('node-opcua-client');
+    const { DataValue } = require('node-opcua-data-value');
+    const fs = require('fs');
+    const path = require('path');
+
+    const sub = await this.session.createSubscription2({
+      requestedPublishingInterval: publishingInterval,
+      requestedLifetimeCount: 60,
+      requestedMaxKeepAliveCount: 10,
+      maxNotificationsPerPublish: 100,
+      publishingEnabled: true,
+      priority: 1
+    });
+
+    const monitorId = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    const baseLog = logPath || path.join(__dirname, '..', 'nodered', 'logs', `${datasetId}-${this.connectionId}.csv`);
+    try { fs.mkdirSync(path.dirname(baseLog), { recursive: true }); } catch {}
+    fs.existsSync(baseLog) || fs.writeFileSync(baseLog, 'timestamp,nodeId,value,status\n');
+
+    const items = [];
+    for (const nid of ids) {
+      const mi = await sub.monitor({ nodeId: nid, attributeId: AttributeIds.Value }, { samplingInterval, discardOldest, queueSize }, TimestampsToReturn.Both);
+      mi.on('changed', (dv) => {
+        try {
+          const ts = new Date().toISOString();
+          const val = dv?.value?.value;
+          const status = dv?.statusCode?.name || String(dv?.statusCode || '');
+          const line = `${ts},${JSON.stringify(nid)},${JSON.stringify(val)},${JSON.stringify(status)}`;
+          fs.appendFile(baseLog, line + '\n', ()=>{});
+          if (global.broadcast) global.broadcast({ type: 'opcua', data: { event: 'data', connectionId: this.connectionId, nodeId: nid, value: val, status, ts } });
+        } catch(_){ }
+      });
+      items.push(mi);
+    }
+
+    this._monitors.set(monitorId, { subscription: sub, items, logPath: baseLog });
+    return { success: true, monitorId, logPath: baseLog };
+  }
+
+  async monitorStop(monitorId) {
+    const m = this._monitors.get(monitorId);
+    if (!m) return { success: true, stopped: false };
+    try {
+      for (const it of m.items || []) { try { await it.terminate(); } catch(_){} }
+      try { await m.subscription.terminate(); } catch(_){}
+    } finally {
+      this._monitors.delete(monitorId);
+    }
+    return { success: true, stopped: true };
   }
 
   async _inferDataTypeForNode(nodeId) {

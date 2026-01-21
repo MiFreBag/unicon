@@ -45,6 +45,7 @@ export default function WebSocketWorkspace({ connection, openTab }) {
   const sendMessage = async () => {
     if (!message.trim() || !connection || status !== 'connected') return;
     try {
+      try { window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection.id, kind: 'ws_sent', message: message } })); } catch(_){}
       await fetch('/unicon/api/operation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
