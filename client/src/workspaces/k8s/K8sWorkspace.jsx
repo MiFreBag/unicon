@@ -145,7 +145,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
   
   // Theme (persisted)
   const [themeName, setThemeName] = useState(() => {
-    try { return localStorage.getItem('unicon_k8s_theme') || 'dark'; } catch { return 'dark'; }
+    try { return localStorage.getItem('unicon_k8s_theme') || 'light'; } catch { return 'light'; }
   });
   const theme = THEMES[themeName] || THEMES.dark;
   
