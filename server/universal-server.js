@@ -1421,7 +1421,7 @@ const createApp = (state) => {
     // search existing
     let conn = connections.find(c => (c.type==='opcua'||c.type==='opc-ua') && c.config && c.config.endpointUrl===endpointUrl);
     if (!conn){
-      conn = normalizeConnection({ id: uuidv4(), name: datasetId, type: 'opcua', config: { endpointUrl, securityMode: ds.securityMode||'None', securityPolicy: ds.securityPolicy||'None', userIdentity: ds.auth||{ type:'anonymous' } } });
+      conn = normalizeConnection({ id: uuidv4(), name: datasetId, type: 'opcua', config: { endpointUrl, securityMode: ds.securityMode||'None', securityPolicy: ds.securityPolicy||'None', userIdentity: ds.auth||{ type:'anonymous' }, timeoutMs: ds.timeoutMs || 20000 } });
       connections.push(conn);
       await persistConnections(connections, db);
     }
@@ -1493,7 +1493,43 @@ const createApp = (state) => {
     } catch(e){ res.status(500).json({ success:false, error: e.message }); }
   });
 
+  // Guess OPC UA endpoints by trying common ports/paths with None/Anonymous
+  apiRouter.post('/opcua/guess', async (req, res) => {
+    try {
+      const { host, ports = [4840,53530], paths = ['/', '/OPCUA/SimulationServer', '/UA/Server', '/blr'], timeoutMs = 4000 } = req.body || {};
+      if (!host) return res.status(400).json({ success:false, error:'host required' });
+      const tried = [];
+      const ok = [];
+      for (const port of ports) {
+        for (const p of paths) {
+          const pathNorm = p.startsWith('/') ? p : `/${p}`;
+          const url = `opc.tcp://${host}:${port}${pathNorm}`;
+          tried.push(url);
+          const h = new OPCUAHandler('guess', { endpointUrl: url, securityMode: 'None', securityPolicy: 'None', timeoutMs });
+          try {
+            await h.connect();
+            ok.push(url);
+            await h.disconnect();
+          } catch (_) {}
+        }
+      }
+      res.json({ success:true, ok, tried });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+
   // Tools endpoints (safe wrappers)
+  apiRouter.post('/tools/tcp-check', async (req, res) => {
+    try {
+      const { host, port, timeoutMs = 4000 } = req.body || {};
+      if (!host || !port) return res.status(400).json({ success:false, error:'host and port required' });
+      const net = require('net');
+      const socket = new net.Socket();
+      const timer = setTimeout(() => { try { socket.destroy(); } catch(_){} }, Math.max(100, timeoutMs));
+      socket.once('error', (e)=>{ clearTimeout(timer); return res.status(200).json({ success:false, reachable:false, error: e.message }); });
+      socket.connect(port, host, ()=>{ clearTimeout(timer); try { socket.destroy(); } catch(_){}; return res.json({ success:true, reachable:true }); });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+
   apiRouter.post('/tools/ping', async (req, res) => {
     try {
       const { host, count = 4, timeoutMs = 12000 } = req.body || {};

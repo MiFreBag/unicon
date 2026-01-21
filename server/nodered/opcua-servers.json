@@ -7,6 +7,16 @@
       "endpoint": "opc.tcp://10.100.72.101:4840/blr",
       "securityPolicy": "None",
       "securityMode": "None",
+      "timeoutMs": 20000,
+      "auth": { "type": "anonymous" }
+    },
+    {
+      "id": "prosys",
+      "name": "Prosys Demo",
+      "endpoint": "opc.tcp://10.100.72.101:53530/OPCUA/SimulationServer",
+      "securityPolicy": "None",
+      "securityMode": "None",
+      "timeoutMs": 20000,
       "auth": { "type": "anonymous" }
     },
     {

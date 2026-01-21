@@ -6,12 +6,46 @@ import {
   RefreshCw, Play, Square, Server, Box, Layers, Settings, Database,
   Network, Clock, Shield, HardDrive, Users, Activity, Workflow,
   ChevronRight, ChevronDown, Terminal, X, Zap, Share2, Cpu, MemoryStick,
-  Pause, ToggleLeft, ToggleRight
+  Pause, ToggleLeft, ToggleRight, Sun, Moon
 } from 'lucide-react';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 import K8sResourceTable from './K8sResourceTable.jsx';
 import K8sYamlViewer from './K8sYamlViewer.jsx';
 import K8sTerminal from './K8sTerminal.jsx';
+
+// Theme definitions
+const THEMES = {
+  dark: {
+    bg: 'bg-gray-900',
+    sidebar: 'bg-gray-850',
+    header: 'bg-gray-800',
+    panel: 'bg-gray-800',
+    border: 'border-gray-700',
+    text: 'text-gray-200',
+    textMuted: 'text-gray-400',
+    textFaint: 'text-gray-500',
+    input: 'bg-gray-800 border-gray-700 text-gray-200',
+    inputDark: 'bg-gray-900 border-gray-700 text-white',
+    hover: 'hover:bg-gray-800',
+    active: 'bg-blue-600 text-white',
+    button: 'text-gray-400 hover:text-white hover:bg-gray-700',
+  },
+  light: {
+    bg: 'bg-white',
+    sidebar: 'bg-gray-50',
+    header: 'bg-gray-100',
+    panel: 'bg-white',
+    border: 'border-gray-200',
+    text: 'text-gray-900',
+    textMuted: 'text-gray-600',
+    textFaint: 'text-gray-500',
+    input: 'bg-white border-gray-300 text-gray-900',
+    inputDark: 'bg-gray-50 border-gray-300 text-gray-900',
+    hover: 'hover:bg-gray-100',
+    active: 'bg-blue-600 text-white',
+    button: 'text-gray-600 hover:text-gray-900 hover:bg-gray-200',
+  },
+};
 
 // Resource type icons and groups
 const RESOURCE_GROUPS = {
@@ -108,6 +142,18 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
   
   // Container selector for multi-container pods
   const [containerDialog, setContainerDialog] = useState(null);
+  
+  // Theme (persisted)
+  const [themeName, setThemeName] = useState(() => {
+    try { return localStorage.getItem('unicon_k8s_theme') || 'dark'; } catch { return 'dark'; }
+  });
+  const theme = THEMES[themeName] || THEMES.dark;
+  
+  const toggleTheme = () => {
+    const next = themeName === 'dark' ? 'light' : 'dark';
+    setThemeName(next);
+    try { localStorage.setItem('unicon_k8s_theme', next); } catch {}
+  };
 
   const k8sConnections = useMemo(() => (connections || []).filter(c => c.type === 'k8s'), [connections]);
   const selectedConnection = useMemo(() => k8sConnections.find(c => c.id === selectedId), [k8sConnections, selectedId]);
@@ -604,15 +650,15 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
   };
 
   return (
-    <div className="flex h-full bg-gray-900 text-gray-200 -m-4 rounded-lg overflow-hidden">
+    <div className={`flex h-full ${theme.bg} ${theme.text} -m-4 rounded-lg overflow-hidden`}>
       {/* Sidebar */}
-      <div className="w-56 flex-shrink-0 bg-gray-850 border-r border-gray-700 flex flex-col">
+      <div className={`w-56 flex-shrink-0 ${theme.sidebar} border-r ${theme.border} flex flex-col`}>
         {/* Connection selector */}
-        <div className="p-3 border-b border-gray-700">
+        <div className={`p-3 border-b ${theme.border}`}>
           <select
             value={selectedId}
             onChange={(e) => handleQuickConnect(e.target.value)}
-            className="w-full px-2 py-1.5 text-sm bg-gray-800 border border-gray-700 rounded text-gray-200 focus:outline-none focus:border-blue-500"
+            className={`w-full px-2 py-1.5 text-sm ${theme.input} border rounded focus:outline-none focus:border-blue-500`}
           >
             <option value="">Select cluster...</option>
             {k8sConnections.map(c => (
@@ -628,7 +674,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                 <button
                   onClick={handleConnect}
                   disabled={loading}
-                  className="flex-1 px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded flex items-center justify-center gap-1"
+                  className="flex-1 px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded flex items-center justify-center gap-1"
                 >
                   {loading ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />}
                   Connect
@@ -637,7 +683,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                 <button
                   onClick={handleDisconnect}
                   disabled={loading}
-                  className="flex-1 px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded flex items-center justify-center gap-1"
+                  className="flex-1 px-2 py-1 text-xs bg-red-600 hover:bg-red-700 text-white rounded flex items-center justify-center gap-1"
                 >
                   <Square size={12} /> Disconnect
                 </button>
@@ -649,13 +695,13 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
         
         {/* Context & Namespace */}
         {status === 'connected' && (
-          <div className="p-3 border-b border-gray-700 space-y-2">
+          <div className={`p-3 border-b ${theme.border} space-y-2`}>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Context</label>
+              <label className={`block text-xs ${theme.textFaint} mb-1`}>Context</label>
               <select
                 value={currentContext}
                 onChange={(e) => switchContext(e.target.value)}
-                className="w-full px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded text-gray-200"
+                className={`w-full px-2 py-1 text-xs ${theme.input} border rounded`}
               >
                 {contexts.map(ctx => (
                   <option key={ctx} value={ctx}>{ctx}</option>
@@ -664,10 +710,10 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500">Namespace</label>
+                <label className={`text-xs ${theme.textFaint}`}>Namespace</label>
                 <button
                   onClick={toggleAllNamespaces}
-                  className={`text-xs px-1.5 rounded ${allNamespaces ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                  className={`text-xs px-1.5 rounded ${allNamespaces ? 'bg-blue-600 text-white' : `${theme.textMuted} hover:${theme.text}`}`}
                 >
                   All
                 </button>
@@ -676,7 +722,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                 value={namespace}
                 onChange={(e) => handleNamespaceChange(e.target.value)}
                 disabled={allNamespaces}
-                className="w-full px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded text-gray-200 disabled:opacity-50"
+                className={`w-full px-2 py-1 text-xs ${theme.input} border rounded disabled:opacity-50`}
               >
                 {namespaces.map(ns => (
                   <option key={ns} value={ns}>{ns}</option>
@@ -693,7 +739,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
               <div key={key} className="mb-1">
                 <button
                   onClick={() => toggleGroup(key)}
-                  className="w-full px-3 py-1 flex items-center gap-2 text-xs text-gray-400 hover:text-white hover:bg-gray-800"
+                  className={`w-full px-3 py-1 flex items-center gap-2 text-xs ${theme.textMuted} ${theme.hover}`}
                 >
                   {expandedGroups[key] ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                   <group.icon size={12} />
@@ -710,8 +756,8 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                           onClick={() => handleResourceTypeChange(res)}
                           className={`w-full px-3 py-1 flex items-center gap-2 text-xs rounded-l ${
                             resourceType === res
-                              ? 'bg-blue-600 text-white'
-                              : 'text-gray-300 hover:bg-gray-800'
+                              ? theme.active
+                              : `${theme.text} ${theme.hover}`
                           }`}
                         >
                           <Icon size={12} />
@@ -726,24 +772,32 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
           </div>
         )}
         
-        {/* Keyboard shortcuts */}
-        <div className="p-2 border-t border-gray-700 text-xs text-gray-500">
+        {/* Keyboard shortcuts & Theme toggle */}
+        <div className={`p-2 border-t ${theme.border} text-xs ${theme.textFaint}`}>
           <div className="flex justify-between"><span>:</span><span>Command</span></div>
           <div className="flex justify-between"><span>1-6</span><span>Resources</span></div>
           <div className="flex justify-between"><span>Ctrl+R</span><span>Refresh</span></div>
+          <button
+            onClick={toggleTheme}
+            className={`mt-2 w-full flex items-center justify-center gap-1 px-2 py-1 rounded ${theme.button}`}
+            title="Toggle theme"
+          >
+            {themeName === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
+            {themeName === 'dark' ? 'Light' : 'Dark'} Mode
+          </button>
         </div>
       </div>
       
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+        <div className={`flex items-center justify-between px-4 py-2 ${theme.header} border-b ${theme.border}`}>
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-medium">
               {resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}
             </h2>
             {!allNamespaces && namespace && (
-              <span className="text-xs text-gray-500">in {namespace}</span>
+              <span className={`text-xs ${theme.textFaint}`}>in {namespace}</span>
             )}
             {allNamespaces && (
               <span className="text-xs text-blue-400">all namespaces</span>
@@ -755,7 +809,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
             <button
               onClick={() => setAutoRefresh(a => !a)}
               className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
-                autoRefresh ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                autoRefresh ? 'bg-green-600 text-white' : theme.button
               }`}
               title={autoRefresh ? `Auto-refresh ON (${refreshInterval/1000}s)` : 'Auto-refresh OFF'}
             >
@@ -768,7 +822,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
               <button
                 onClick={() => setShowMetrics(m => !m)}
                 className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
-                  showMetrics ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                  showMetrics ? 'bg-purple-600 text-white' : theme.button
                 }`}
                 title="Toggle metrics"
               >
@@ -798,11 +852,26 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
         {/* Content area */}
         <div className="flex-1 flex flex-col min-h-0">
           {status !== 'connected' ? (
-            <div className="flex-1 flex items-center justify-center text-gray-500">
+            <div className={`flex-1 flex items-center justify-center ${theme.textFaint}`}>
               <div className="text-center">
                 <Server size={48} className="mx-auto mb-4 opacity-50" />
                 <p className="text-lg mb-2">No cluster connected</p>
                 <p className="text-sm">Select a Kubernetes connection and click Connect</p>
+                <div className={`mt-4 p-4 rounded ${theme.panel} border ${theme.border} text-left text-xs max-w-md`}>
+                  <p className="font-medium mb-2">Configuration:</p>
+                  <ol className="list-decimal list-inside space-y-1">
+                    <li>Go to Connections → New Connection</li>
+                    <li>Select type: <strong>Kubernetes</strong></li>
+                    <li>Choose kubeconfig source:</li>
+                    <ul className="ml-6 list-disc">
+                      <li><strong>Default</strong> - uses ~/.kube/config</li>
+                      <li><strong>Path</strong> - specify custom path</li>
+                      <li><strong>Inline</strong> - paste kubeconfig YAML</li>
+                    </ul>
+                    <li>Optionally set context and default namespace</li>
+                    <li>Save and connect</li>
+                  </ol>
+                </div>
               </div>
             </div>
           ) : (
@@ -823,7 +892,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
               
               {/* YAML Panel */}
               {yamlPanel && (
-                <div className="h-1/2 border-t border-gray-700">
+                <div className={`h-1/2 border-t ${theme.border}`}>
                   <K8sYamlViewer
                     yaml={yamlPanel.yaml}
                     resourceName={yamlPanel.name}
@@ -838,7 +907,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
               
               {/* Terminal Panel */}
               {terminalPanel && (
-                <div className="h-1/2 border-t border-gray-700">
+                <div className={`h-1/2 border-t ${theme.border}`}>
                   <K8sTerminal
                     connectionId={selectedId}
                     sessionId={terminalPanel.sessionId}
@@ -859,9 +928,9 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
       {/* Command Palette */}
       {showCommandPalette && (
         <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-32 z-50">
-          <div className="bg-gray-800 rounded-lg shadow-xl w-96 overflow-hidden">
-            <div className="flex items-center px-3 py-2 border-b border-gray-700">
-              <span className="text-gray-400 mr-2">:</span>
+          <div className={`${theme.panel} ${theme.text} rounded-lg shadow-xl w-96 overflow-hidden border ${theme.border}`}>
+            <div className={`flex items-center px-3 py-2 border-b ${theme.border}`}>
+              <span className={`${theme.textMuted} mr-2`}>:</span>
               <input
                 type="text"
                 value={command}
@@ -871,11 +940,11 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                   if (e.key === 'Escape') { setShowCommandPalette(false); setCommand(''); }
                 }}
                 placeholder="pods, deploy, svc, ns <name>, ctx <name>, q"
-                className="flex-1 bg-transparent text-white focus:outline-none"
+                className={`flex-1 bg-transparent ${theme.text} focus:outline-none`}
                 autoFocus
               />
             </div>
-            <div className="p-2 text-xs text-gray-500">
+            <div className={`p-2 text-xs ${theme.textFaint}`}>
               <div>pods/po, deployments/deploy, services/svc, configmaps/cm, secrets/sec, nodes/no</div>
               <div>ns &lt;name&gt; - switch namespace | ctx &lt;name&gt; - switch context | q - disconnect</div>
             </div>
@@ -886,28 +955,28 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
       {/* Scale Dialog */}
       {scaleDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg shadow-xl w-80 p-4">
+          <div className={`${theme.panel} ${theme.text} rounded-lg shadow-xl w-80 p-4 border ${theme.border}`}>
             <h3 className="text-sm font-medium mb-4">Scale {scaleDialog.name}</h3>
             <div className="mb-4">
-              <label className="block text-xs text-gray-400 mb-1">Replicas</label>
+              <label className={`block text-xs ${theme.textMuted} mb-1`}>Replicas</label>
               <input
                 type="number"
                 min="0"
                 defaultValue={scaleDialog.currentReplicas}
-                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white"
+                className={`w-full px-3 py-2 ${theme.inputDark} border rounded`}
                 id="scale-input"
               />
             </div>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setScaleDialog(null)}
-                className="px-3 py-1.5 text-sm text-gray-400 hover:text-white"
+                className={`px-3 py-1.5 text-sm ${theme.textMuted}`}
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleScale(parseInt(document.getElementById('scale-input').value, 10))}
-                className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 rounded"
+                className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
               >
                 Scale
               </button>
@@ -919,27 +988,27 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
       {/* Port Forward Dialog */}
       {portForwardDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg shadow-xl w-96 p-4">
+          <div className={`${theme.panel} ${theme.text} rounded-lg shadow-xl w-96 p-4 border ${theme.border}`}>
             {portForwardDialog.mode === 'list' ? (
               <>
                 <h3 className="text-sm font-medium mb-4">Active Port Forwards</h3>
                 <div className="space-y-2 max-h-64 overflow-auto mb-4">
                   {portForwards.map(pf => (
-                    <div key={pf.id} className="flex items-center justify-between p-2 bg-gray-900 rounded">
+                    <div key={pf.id} className={`flex items-center justify-between p-2 ${theme.inputDark} rounded`}>
                       <div>
-                        <div className="text-sm text-white">{pf.pod}</div>
-                        <div className="text-xs text-gray-400">localhost:{pf.localPort} → {pf.podPort}</div>
+                        <div className="text-sm">{pf.pod}</div>
+                        <div className={`text-xs ${theme.textMuted}`}>localhost:{pf.localPort} → {pf.podPort}</div>
                       </div>
                       <button
                         onClick={() => stopPortForward(pf.id)}
-                        className="px-2 py-1 text-xs text-red-400 hover:bg-gray-700 rounded"
+                        className={`px-2 py-1 text-xs text-red-500 ${theme.hover} rounded`}
                       >
                         Stop
                       </button>
                     </div>
                   ))}
                   {portForwards.length === 0 && (
-                    <div className="text-sm text-gray-500 text-center py-4">No active port forwards</div>
+                    <div className={`text-sm ${theme.textFaint} text-center py-4`}>No active port forwards</div>
                   )}
                 </div>
               </>
@@ -948,21 +1017,21 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                 <h3 className="text-sm font-medium mb-4">Port Forward to {portForwardDialog.pod}</h3>
                 <div className="space-y-3 mb-4">
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1">Pod Port</label>
+                    <label className={`block text-xs ${theme.textMuted} mb-1`}>Pod Port</label>
                     <input
                       type="number"
                       id="pf-pod-port"
                       placeholder="80"
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white"
+                      className={`w-full px-3 py-2 ${theme.inputDark} border rounded`}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1">Local Port (optional)</label>
+                    <label className={`block text-xs ${theme.textMuted} mb-1`}>Local Port (optional)</label>
                     <input
                       type="number"
                       id="pf-local-port"
                       placeholder="Same as pod port"
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white"
+                      className={`w-full px-3 py-2 ${theme.inputDark} border rounded`}
                     />
                   </div>
                 </div>
@@ -971,7 +1040,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setPortForwardDialog(null)}
-                className="px-3 py-1.5 text-sm text-gray-400 hover:text-white"
+                className={`px-3 py-1.5 text-sm ${theme.textMuted}`}
               >
                 Close
               </button>
@@ -982,7 +1051,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                     document.getElementById('pf-pod-port').value,
                     document.getElementById('pf-local-port').value
                   )}
-                  className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 rounded"
+                  className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
                 >
                   Start
                 </button>
@@ -995,14 +1064,14 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
       {/* Container Selector Dialog */}
       {containerDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg shadow-xl w-80 p-4">
+          <div className={`${theme.panel} ${theme.text} rounded-lg shadow-xl w-80 p-4 border ${theme.border}`}>
             <h3 className="text-sm font-medium mb-4">Select Container</h3>
             <div className="space-y-2 max-h-64 overflow-auto mb-4">
               {containerDialog.item.containers.map(c => (
                 <button
                   key={c}
                   onClick={() => handleContainerSelect(c)}
-                  className="w-full text-left px-3 py-2 bg-gray-900 hover:bg-gray-700 rounded text-sm text-white"
+                  className={`w-full text-left px-3 py-2 ${theme.inputDark} ${theme.hover} rounded text-sm`}
                 >
                   {c}
                 </button>
@@ -1011,7 +1080,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
             <div className="flex justify-end">
               <button
                 onClick={() => setContainerDialog(null)}
-                className="px-3 py-1.5 text-sm text-gray-400 hover:text-white"
+                className={`px-3 py-1.5 text-sm ${theme.textMuted}`}
               >
                 Cancel
               </button>

@@ -148,6 +148,44 @@ export default function OpcUaWorkspace({ connection }) {
   };
   const [pauseBetweenRepeats, setPauseBetweenRepeats] = useState(0);
 
+  const chosenSteps = (onlySelected) => {
+    return (onlySelected ? seq.filter(s=>s.selected) : seq);
+  };
+
+  const dryRun = async (onlySelected=false) => {
+    const steps = chosenSteps(onlySelected);
+    if (!steps.length) { alert('No steps selected'); return; }
+    const base = (()=>{ try { const d=new Date(startAt); return isNaN(d.getTime())?new Date():d; } catch { return new Date(); } })();
+    let t = base.getTime();
+    steps.forEach((s, idx) => {
+      t += Math.max(0, parseInt(s.delayMs||0,10));
+      const at = new Date(t).toLocaleTimeString();
+      const msg = `DRY step ${idx+1}: ${s.nodeId} ${s.dataType||'Auto'}=${s.value} @ ${at}`;
+      window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection?.id, kind:'info', message: msg } }));
+    });
+    alert(`Dry run planned ${steps.length} steps. Check Client log for details.`);
+  };
+
+  const validateSequence = async (onlySelected=false) => {
+    const steps = chosenSteps(onlySelected);
+    if (!steps.length) { alert('No steps to validate'); return; }
+    if (status !== 'connected') { alert('Connect first'); return; }
+    const unique = Array.from(new Set(steps.map(s => s.nodeId).filter(Boolean))).map(n => ({ nodeId: n }));
+    try {
+      const r = await op(connection.id, 'read', { nodes: unique });
+      const vals = (r?.data || r)?.values || [];
+      let ok = 0, bad = 0;
+      const failed = [];
+      unique.forEach((u, i) => { const st = vals[i]?.statusCode || 'Good'; if (String(st).toLowerCase().includes('good')) ok++; else { bad++; failed.push(`${u.nodeId} (${st})`); } });
+      const summary = `Validated ${unique.length} nodes: ${ok} OK, ${bad} bad`;
+      window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection?.id, kind: bad? 'error':'info', message: summary, hint: failed.join('; ').slice(0,800) } }));
+      alert(summary + (failed.length? `\nFailed: ${failed.slice(0,5).join(', ')}${failed.length>5?' …':''}`:''));
+    } catch (e) {
+      window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection?.id, kind:'error', message:`Validate failed: ${e.message}` } }));
+      alert('Validate failed: ' + (e.message||'error'));
+    }
+  };
+
   const runSequence = async () => {
     if (!connection?.id) return;
     if (!seq.length) { alert('No steps'); return; }
@@ -272,13 +310,16 @@ export default function OpcUaWorkspace({ connection }) {
                 <input type="checkbox" checked={loop} onChange={e=>setLoop(e.target.checked)} /> Loop
               </label>
               <button className="px-2 py-1 border rounded" onClick={()=>addStep()}>Add step</button>
+              <button className="px-2 py-1 border rounded" onClick={()=>dryRun(runSelectedOnly)} title="Simulate without writing">Dry run</button>
+              <button className="px-2 py-1 border rounded" onClick={()=>validateSequence(runSelectedOnly)} title="Read nodes once to pre-check">Validate</button>
               <button className="px-2 py-1 border rounded" onClick={()=>{ try { const blob = new Blob([JSON.stringify(seq, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='opcua-sequence.json'; a.click(); URL.revokeObjectURL(a.href); } catch(e){ alert('Export failed'); } }}>Export</button>
               <button className="px-2 py-1 border rounded" onClick={()=>importRef.current?.click()}>Import</button>
               <input ref={importRef} type="file" accept="application/json" className="hidden" onChange={async (e)=>{ const f=e.target.files?.[0]; if(!f) return; try { const txt=await f.text(); const arr=JSON.parse(txt); if(Array.isArray(arr)) setSeq(arr.map(x=>({ nodeId: String(x.nodeId||''), selected: !!x.selected, dataType: x.dataType||'Auto', value: x.value ?? '', delayMs: parseInt(x.delayMs||0,10), durationMs: parseInt(x.durationMs||0,10), jitterMs: parseInt(x.jitterMs||0,10), revert: !!x.revert, description: x.description||'' }))); } catch(err){ alert('Import failed: '+(err.message||'error')); } finally { e.target.value=''; } }} />
               <label className="flex items-center gap-1">
                 <input type="checkbox" checked={runSelectedOnly} onChange={e=>setRunSelectedOnly(e.target.checked)} /> Run selected only
               </label>
-              <button className="px-2 py-1 border rounded" onClick={runSequence} disabled={running || status!=='connected'}>Run</button>
+              <button className="px-2 py-1 border rounded" onClick={()=>{ const prev=runSelectedOnly; setRunSelectedOnly(false); runSequence().finally(()=>setRunSelectedOnly(prev)); }} disabled={running || status!=='connected'}>Run all</button>
+              <button className="px-2 py-1 border rounded" onClick={()=>{ const prev=runSelectedOnly; setRunSelectedOnly(true); runSequence().finally(()=>setRunSelectedOnly(prev)); }} disabled={running || status!=='connected'}>Run selected</button>
               <button className="px-2 py-1 border rounded" onClick={stopSequence} disabled={!running}>Stop</button>
             </div>
           </div>
