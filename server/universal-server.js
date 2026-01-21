@@ -925,6 +925,28 @@ const createApp = (state) => {
             const result = await h.getContainers(params.namespace, params.pod);
             return res.json(result);
           }
+          // Pulse view - cluster health overview
+          case 'pulse': {
+            const result = await h.getPulse();
+            return res.json(result);
+          }
+          // Node management
+          case 'cordonNode': {
+            const result = await h.cordonNode(params.name);
+            return res.json(result);
+          }
+          case 'uncordonNode': {
+            const result = await h.uncordonNode(params.name);
+            return res.json(result);
+          }
+          case 'drainNode': {
+            const result = await h.drainNode(params.name, { force: params.force, ignoreDaemonSets: params.ignoreDaemonSets, deleteEmptyDir: params.deleteEmptyDir });
+            return res.json(result);
+          }
+          // All resource types
+          case 'allResourceTypes': {
+            return res.json(h.getAllResourceTypes());
+          }
           default:
             return res.status(400).json({ success: false, error: `Unknown K8s operation: ${operation}` });
         }

@@ -1070,6 +1070,291 @@ class K8sHandler {
   _broadcast(message) {
     if (global.broadcast) global.broadcast(message);
   }
+
+  // ========== PULSE VIEW - CLUSTER HEALTH OVERVIEW ==========
+  
+  /**
+   * Get cluster pulse/health overview (like k9s :pulse)
+   */
+  async getPulse() {
+    try {
+      // Get nodes
+      const nodesRes = await this.core.listNode();
+      const nodes = nodesRes.body.items || [];
+      const readyNodes = nodes.filter(n => {
+        const ready = (n.status?.conditions || []).find(c => c.type === 'Ready');
+        return ready?.status === 'True';
+      }).length;
+
+      // Get namespaces
+      const nsRes = await this.core.listNamespace();
+      const namespaces = nsRes.body.items || [];
+
+      // Get pods across all namespaces
+      const podsRes = await this.core.listPodForAllNamespaces();
+      const pods = podsRes.body.items || [];
+      const podsByStatus = {
+        running: pods.filter(p => p.status?.phase === 'Running').length,
+        pending: pods.filter(p => p.status?.phase === 'Pending').length,
+        failed: pods.filter(p => p.status?.phase === 'Failed').length,
+        succeeded: pods.filter(p => p.status?.phase === 'Succeeded').length,
+        unknown: pods.filter(p => !['Running', 'Pending', 'Failed', 'Succeeded'].includes(p.status?.phase)).length,
+      };
+
+      // Get deployments
+      const deploysRes = await this.apps.listDeploymentForAllNamespaces();
+      const deployments = deploysRes.body.items || [];
+      const readyDeploys = deployments.filter(d => 
+        d.status?.readyReplicas === d.spec?.replicas
+      ).length;
+
+      // Get recent events (warnings)
+      const eventsRes = await this.core.listEventForAllNamespaces();
+      const events = eventsRes.body.items || [];
+      const warnings = events.filter(e => e.type === 'Warning')
+        .sort((a, b) => new Date(b.lastTimestamp || b.eventTime) - new Date(a.lastTimestamp || a.eventTime))
+        .slice(0, 10)
+        .map(e => ({
+          namespace: e.metadata?.namespace,
+          age: this._getAge(e.lastTimestamp || e.eventTime),
+          reason: e.reason,
+          object: `${e.involvedObject?.kind}/${e.involvedObject?.name}`,
+          message: e.message,
+        }));
+
+      // Try to get metrics if available
+      let cpuUsage = null;
+      let memoryUsage = null;
+      try {
+        const metricsApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
+        const nodeMetrics = await metricsApi.listClusterCustomObject('metrics.k8s.io', 'v1beta1', 'nodes');
+        const items = nodeMetrics.body.items || [];
+        let totalCpu = 0;
+        let totalMem = 0;
+        for (const m of items) {
+          totalCpu += this._parseCpu(m.usage?.cpu);
+          totalMem += this._parseMemory(m.usage?.memory);
+        }
+        cpuUsage = this._formatCpu(totalCpu);
+        memoryUsage = this._formatMemory(totalMem);
+      } catch (_) {
+        // Metrics not available
+      }
+
+      return {
+        success: true,
+        data: {
+          cluster: {
+            context: this.currentContext,
+            version: nodes[0]?.status?.nodeInfo?.kubeletVersion,
+          },
+          nodes: {
+            total: nodes.length,
+            ready: readyNodes,
+            notReady: nodes.length - readyNodes,
+          },
+          namespaces: namespaces.length,
+          pods: {
+            total: pods.length,
+            ...podsByStatus,
+          },
+          deployments: {
+            total: deployments.length,
+            ready: readyDeploys,
+          },
+          metrics: cpuUsage ? { cpu: cpuUsage, memory: memoryUsage } : null,
+          warnings,
+        },
+      };
+    } catch (e) {
+      throw new Error(`Failed to get pulse: ${e.message}`);
+    }
+  }
+
+  // ========== NODE MANAGEMENT ==========
+  
+  /**
+   * Cordon a node (mark unschedulable)
+   */
+  async cordonNode(name) {
+    if (!name) throw new Error('name required');
+    const patch = { spec: { unschedulable: true } };
+    await this.core.patchNode(name, patch, undefined, undefined, undefined, undefined, undefined, {
+      headers: { 'Content-Type': 'application/strategic-merge-patch+json' },
+    });
+    return { success: true, data: { message: `Node ${name} cordoned` } };
+  }
+
+  /**
+   * Uncordon a node (mark schedulable)
+   */
+  async uncordonNode(name) {
+    if (!name) throw new Error('name required');
+    const patch = { spec: { unschedulable: false } };
+    await this.core.patchNode(name, patch, undefined, undefined, undefined, undefined, undefined, {
+      headers: { 'Content-Type': 'application/strategic-merge-patch+json' },
+    });
+    return { success: true, data: { message: `Node ${name} uncordoned` } };
+  }
+
+  /**
+   * Drain a node (evict all pods, then cordon)
+   * Note: This is a simplified drain - full drain would handle PDBs, DaemonSets, etc.
+   */
+  async drainNode(name, { force = false, ignoreDaemonSets = true, deleteEmptyDir = false } = {}) {
+    if (!name) throw new Error('name required');
+    
+    // First cordon the node
+    await this.cordonNode(name);
+    
+    // Get pods on this node
+    const podsRes = await this.core.listPodForAllNamespaces();
+    const nodePods = (podsRes.body.items || []).filter(p => p.spec?.nodeName === name);
+    
+    const evicted = [];
+    const skipped = [];
+    const errors = [];
+    
+    for (const pod of nodePods) {
+      const podName = pod.metadata?.name;
+      const ns = pod.metadata?.namespace;
+      
+      // Skip mirror pods (static pods)
+      if (pod.metadata?.annotations?.['kubernetes.io/config.mirror']) {
+        skipped.push({ name: podName, reason: 'mirror pod' });
+        continue;
+      }
+      
+      // Skip DaemonSet pods if ignoreDaemonSets
+      const ownerRefs = pod.metadata?.ownerReferences || [];
+      if (ignoreDaemonSets && ownerRefs.some(o => o.kind === 'DaemonSet')) {
+        skipped.push({ name: podName, reason: 'DaemonSet pod' });
+        continue;
+      }
+      
+      // Check for local storage
+      const volumes = pod.spec?.volumes || [];
+      const hasEmptyDir = volumes.some(v => v.emptyDir);
+      if (hasEmptyDir && !deleteEmptyDir && !force) {
+        skipped.push({ name: podName, reason: 'has emptyDir volume' });
+        continue;
+      }
+      
+      try {
+        // Try eviction first
+        const eviction = {
+          apiVersion: 'policy/v1',
+          kind: 'Eviction',
+          metadata: { name: podName, namespace: ns },
+        };
+        await this.core.createNamespacedPodEviction(podName, ns, eviction);
+        evicted.push(podName);
+      } catch (e) {
+        if (force) {
+          // Force delete
+          try {
+            await this.core.deleteNamespacedPod(podName, ns, undefined, undefined, 0);
+            evicted.push(podName);
+          } catch (deleteErr) {
+            errors.push({ name: podName, error: deleteErr.message });
+          }
+        } else {
+          errors.push({ name: podName, error: e.message });
+        }
+      }
+    }
+    
+    return {
+      success: true,
+      data: {
+        message: `Node ${name} drained`,
+        evicted,
+        skipped,
+        errors,
+      },
+    };
+  }
+
+  // ========== EDIT YAML ==========
+  
+  /**
+   * Update a resource from YAML
+   */
+  async applyYaml(yamlContent) {
+    if (!yamlContent) throw new Error('yamlContent required');
+    
+    const doc = yaml.load(yamlContent);
+    if (!doc || !doc.kind || !doc.metadata?.name) {
+      throw new Error('Invalid YAML: missing kind or metadata.name');
+    }
+    
+    const { kind, metadata, apiVersion } = doc;
+    const name = metadata.name;
+    const namespace = metadata.namespace || 'default';
+    
+    // Route to appropriate API based on kind
+    let result;
+    switch (kind) {
+      case 'Pod':
+        result = await this.core.replaceNamespacedPod(name, namespace, doc);
+        break;
+      case 'Deployment':
+        result = await this.apps.replaceNamespacedDeployment(name, namespace, doc);
+        break;
+      case 'Service':
+        result = await this.core.replaceNamespacedService(name, namespace, doc);
+        break;
+      case 'ConfigMap':
+        result = await this.core.replaceNamespacedConfigMap(name, namespace, doc);
+        break;
+      case 'Secret':
+        result = await this.core.replaceNamespacedSecret(name, namespace, doc);
+        break;
+      case 'StatefulSet':
+        result = await this.apps.replaceNamespacedStatefulSet(name, namespace, doc);
+        break;
+      case 'DaemonSet':
+        result = await this.apps.replaceNamespacedDaemonSet(name, namespace, doc);
+        break;
+      case 'Job':
+        result = await this.batch.replaceNamespacedJob(name, namespace, doc);
+        break;
+      case 'CronJob':
+        result = await this.batch.replaceNamespacedCronJob(name, namespace, doc);
+        break;
+      case 'Ingress':
+        result = await this.networking.replaceNamespacedIngress(name, namespace, doc);
+        break;
+      case 'ServiceAccount':
+        result = await this.core.replaceNamespacedServiceAccount(name, namespace, doc);
+        break;
+      case 'PersistentVolumeClaim':
+        result = await this.core.replaceNamespacedPersistentVolumeClaim(name, namespace, doc);
+        break;
+      case 'Namespace':
+        result = await this.core.replaceNamespace(name, doc);
+        break;
+      default:
+        throw new Error(`Unsupported resource kind: ${kind}`);
+    }
+    
+    return { success: true, data: { message: `${kind}/${name} updated` } };
+  }
+
+  /**
+   * Get all available resource types
+   */
+  getAllResourceTypes() {
+    return {
+      success: true,
+      data: {
+        resourceTypes: Object.entries(RESOURCE_TYPES).map(([name, config]) => ({
+          name,
+          ...config,
+        })),
+      },
+    };
+  }
 }
 
 module.exports = K8sHandler;

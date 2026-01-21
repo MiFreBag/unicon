@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { 
   ArrowUp, ArrowDown, Search, RefreshCw, Trash2, FileText, 
-  Terminal, Scale, RotateCcw, ChevronUp, ChevronDown, Share2
+  Terminal, Scale, RotateCcw, ChevronUp, ChevronDown, Share2, Settings2
 } from 'lucide-react';
 
 // Column definitions for each resource type
@@ -389,6 +389,16 @@ export default function K8sResourceTable({
                 </button>
               )}
             </>
+          )}
+          
+          {resourceType === 'nodes' && (
+            <button
+              onClick={() => onAction?.('nodeAction', selectedItem)}
+              className="px-2 py-0.5 text-yellow-400 hover:bg-gray-700 rounded flex items-center gap-1"
+              title="Node Actions"
+            >
+              <Settings2 size={12} /> Manage
+            </button>
           )}
           
           <button

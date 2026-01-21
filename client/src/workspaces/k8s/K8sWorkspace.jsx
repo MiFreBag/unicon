@@ -6,12 +6,13 @@ import {
   RefreshCw, Play, Square, Server, Box, Layers, Settings, Database,
   Network, Clock, Shield, HardDrive, Users, Activity, Workflow,
   ChevronRight, ChevronDown, Terminal, X, Zap, Share2, Cpu, MemoryStick,
-  Pause, ToggleLeft, ToggleRight, Sun, Moon
+  Pause, ToggleLeft, ToggleRight, Sun, Moon, Heart, Edit, Ban, CheckCircle2, Trash2
 } from 'lucide-react';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 import K8sResourceTable from './K8sResourceTable.jsx';
 import K8sYamlViewer from './K8sYamlViewer.jsx';
 import K8sTerminal from './K8sTerminal.jsx';
+import K8sPulseView from './K8sPulseView.jsx';
 
 // Theme definitions
 const THEMES = {
@@ -142,6 +143,21 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
   
   // Container selector for multi-container pods
   const [containerDialog, setContainerDialog] = useState(null);
+  
+  // Pulse view
+  const [showPulse, setShowPulse] = useState(false);
+  const [pulseData, setPulseData] = useState(null);
+  const [pulseLoading, setPulseLoading] = useState(false);
+  
+  // Edit YAML mode
+  const [editMode, setEditMode] = useState(false);
+  
+  // Node action dialog
+  const [nodeActionDialog, setNodeActionDialog] = useState(null);
+  
+  // All resource types dialog
+  const [showAllResources, setShowAllResources] = useState(false);
+  const [allResourceTypes, setAllResourceTypes] = useState([]);
   
   // Theme (persisted)
   const [themeName, setThemeName] = useState(() => {
@@ -426,6 +442,11 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
         setPortForwardDialog({ pod: item.name, mode: 'create' });
         break;
       }
+      
+      case 'nodeAction': {
+        setNodeActionDialog({ name: item.name });
+        break;
+      }
     }
   }, [selectedId, resourceType, namespace, loadResources]);
 
@@ -563,6 +584,75 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
     }
   }, [status, loadPortForwards]);
 
+  // ========== PULSE VIEW ==========
+  const loadPulse = useCallback(async () => {
+    if (!selectedId || status !== 'connected') return;
+    setPulseLoading(true);
+    try {
+      const res = await op(selectedId, 'pulse', {});
+      setPulseData(res?.data || null);
+    } catch (e) {
+      console.error('Pulse load failed:', e);
+    } finally {
+      setPulseLoading(false);
+    }
+  }, [selectedId, status]);
+
+  useEffect(() => {
+    if (showPulse && status === 'connected') {
+      loadPulse();
+    }
+  }, [showPulse, status]);
+
+  // ========== NODE MANAGEMENT ==========
+  const handleNodeAction = useCallback(async (action, nodeName, options = {}) => {
+    if (!selectedId) return;
+    try {
+      let res;
+      switch (action) {
+        case 'cordon':
+          res = await op(selectedId, 'cordonNode', { name: nodeName });
+          break;
+        case 'uncordon':
+          res = await op(selectedId, 'uncordonNode', { name: nodeName });
+          break;
+        case 'drain':
+          res = await op(selectedId, 'drainNode', { name: nodeName, ...options });
+          break;
+      }
+      setNodeActionDialog(null);
+      setTimeout(() => loadResources('nodes'), 500);
+      return res;
+    } catch (e) {
+      console.error(`Node ${action} failed:`, e);
+      alert(`Node ${action} failed: ${e.message}`);
+    }
+  }, [selectedId, loadResources]);
+
+  // ========== EDIT YAML ==========
+  const handleApplyYaml = useCallback(async (yamlContent) => {
+    if (!selectedId) return;
+    try {
+      const res = await op(selectedId, 'applyYaml', { yaml: yamlContent });
+      setYamlPanel(null);
+      setEditMode(false);
+      setTimeout(() => loadResources(resourceType), 500);
+      return res;
+    } catch (e) {
+      console.error('Apply YAML failed:', e);
+      alert(`Apply failed: ${e.message}`);
+    }
+  }, [selectedId, resourceType, loadResources]);
+
+  // ========== ALL RESOURCE TYPES ==========
+  const loadAllResourceTypes = useCallback(async () => {
+    if (!selectedId || status !== 'connected') return;
+    try {
+      const res = await op(selectedId, 'allResourceTypes', {});
+      setAllResourceTypes(res?.data?.resourceTypes || []);
+    } catch (_) {}
+  }, [selectedId, status]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -580,6 +670,14 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
         return;
       }
       
+      // Ctrl+A - show all resource types
+      if (e.key === 'a' && e.ctrlKey && status === 'connected') {
+        e.preventDefault();
+        loadAllResourceTypes();
+        setShowAllResources(true);
+        return;
+      }
+      
       // Quick resource switches
       if (!e.target.matches('input, textarea')) {
         if (e.key === '1') handleResourceTypeChange('pods');
@@ -588,6 +686,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
         if (e.key === '4') handleResourceTypeChange('configmaps');
         if (e.key === '5') handleResourceTypeChange('secrets');
         if (e.key === '6') handleResourceTypeChange('nodes');
+        if (e.key === 'p' && e.shiftKey) { setShowPulse(p => !p); } // Shift+P for pulse
       }
     };
     
@@ -625,6 +724,44 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
       case 'no':
         handleResourceTypeChange('nodes');
         break;
+      case 'events':
+      case 'ev':
+        handleResourceTypeChange('events');
+        break;
+      case 'jobs':
+        handleResourceTypeChange('jobs');
+        break;
+      case 'cronjobs':
+      case 'cj':
+        handleResourceTypeChange('cronjobs');
+        break;
+      case 'ingresses':
+      case 'ing':
+        handleResourceTypeChange('ingresses');
+        break;
+      case 'statefulsets':
+      case 'sts':
+        handleResourceTypeChange('statefulsets');
+        break;
+      case 'daemonsets':
+      case 'ds':
+        handleResourceTypeChange('daemonsets');
+        break;
+      case 'pvc':
+        handleResourceTypeChange('persistentvolumeclaims');
+        break;
+      case 'pv':
+        handleResourceTypeChange('persistentvolumes');
+        break;
+      case 'sa':
+        handleResourceTypeChange('serviceaccounts');
+        break;
+      case 'ep':
+        handleResourceTypeChange('endpoints');
+        break;
+      case 'rs':
+        handleResourceTypeChange('replicasets');
+        break;
       case 'ns':
         if (args[0] && namespaces.includes(args[0])) {
           handleNamespaceChange(args[0]);
@@ -639,11 +776,21 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
       case 'quit':
         handleDisconnect();
         break;
+      case 'pulse':
+        setShowPulse(true);
+        break;
+      case 'pf':
+        setPortForwardDialog({ mode: 'list' });
+        break;
+      case 'all':
+        loadAllResourceTypes();
+        setShowAllResources(true);
+        break;
     }
     
     setShowCommandPalette(false);
     setCommand('');
-  }, [handleResourceTypeChange, handleNamespaceChange, switchContext, handleDisconnect, namespaces, contexts]);
+  }, [handleResourceTypeChange, handleNamespaceChange, switchContext, handleDisconnect, namespaces, contexts, loadAllResourceTypes]);
 
   const toggleGroup = (group) => {
     setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }));
@@ -772,11 +919,27 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
           </div>
         )}
         
+        {/* Pulse button */}
+        {status === 'connected' && (
+          <button
+            onClick={() => setShowPulse(p => !p)}
+            className={`mx-2 mb-2 flex items-center justify-center gap-1 px-2 py-1.5 text-xs rounded ${
+              showPulse ? 'bg-red-500 text-white' : theme.button
+            }`}
+            title="Cluster Pulse (Shift+P)"
+          >
+            <Heart size={14} />
+            Pulse
+          </button>
+        )}
+        
         {/* Keyboard shortcuts & Theme toggle */}
         <div className={`p-2 border-t ${theme.border} text-xs ${theme.textFaint}`}>
           <div className="flex justify-between"><span>:</span><span>Command</span></div>
           <div className="flex justify-between"><span>1-6</span><span>Resources</span></div>
           <div className="flex justify-between"><span>Ctrl+R</span><span>Refresh</span></div>
+          <div className="flex justify-between"><span>Ctrl+A</span><span>All Types</span></div>
+          <div className="flex justify-between"><span>Shift+P</span><span>Pulse</span></div>
           <button
             onClick={toggleTheme}
             className={`mt-2 w-full flex items-center justify-center gap-1 px-2 py-1 rounded ${theme.button}`}
@@ -874,6 +1037,15 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                 </div>
               </div>
             </div>
+          ) : showPulse ? (
+            <K8sPulseView
+              pulse={pulseData}
+              loading={pulseLoading}
+              onRefresh={loadPulse}
+              onClose={() => setShowPulse(false)}
+              theme={theme}
+              className="flex-1"
+            />
           ) : (
             <>
               {/* Resource table */}
@@ -945,8 +1117,8 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
               />
             </div>
             <div className={`p-2 text-xs ${theme.textFaint}`}>
-              <div>pods/po, deployments/deploy, services/svc, configmaps/cm, secrets/sec, nodes/no</div>
-              <div>ns &lt;name&gt; - switch namespace | ctx &lt;name&gt; - switch context | q - disconnect</div>
+              <div>pods/po, deploy, svc, cm, sec, no, events, jobs, cronjobs, ing</div>
+              <div>ns &lt;name&gt; | ctx &lt;name&gt; | pulse | pf | all | q</div>
             </div>
           </div>
         </div>
@@ -1080,6 +1252,84 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
             <div className="flex justify-end">
               <button
                 onClick={() => setContainerDialog(null)}
+                className={`px-3 py-1.5 text-sm ${theme.textMuted}`}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* All Resource Types Dialog */}
+      {showAllResources && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className={`${theme.panel} ${theme.text} rounded-lg shadow-xl w-96 max-h-[80vh] flex flex-col border ${theme.border}`}>
+            <div className={`px-4 py-3 border-b ${theme.border} flex items-center justify-between`}>
+              <h3 className="text-sm font-medium">All Resource Types (Ctrl+A)</h3>
+              <button
+                onClick={() => setShowAllResources(false)}
+                className={theme.textMuted}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-2">
+              {allResourceTypes.map(rt => (
+                <button
+                  key={rt.name}
+                  onClick={() => {
+                    handleResourceTypeChange(rt.name);
+                    setShowAllResources(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 ${theme.hover} rounded text-sm flex items-center justify-between`}
+                >
+                  <span>{rt.name}</span>
+                  <span className={`text-xs ${theme.textFaint}`}>
+                    {rt.namespaced ? 'namespaced' : 'cluster'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Node Action Dialog */}
+      {nodeActionDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className={`${theme.panel} ${theme.text} rounded-lg shadow-xl w-96 p-4 border ${theme.border}`}>
+            <h3 className="text-sm font-medium mb-4">Node: {nodeActionDialog.name}</h3>
+            <div className="space-y-2 mb-4">
+              <button
+                onClick={() => handleNodeAction('cordon', nodeActionDialog.name)}
+                className={`w-full text-left px-3 py-2 ${theme.inputDark} ${theme.hover} rounded text-sm flex items-center gap-2`}
+              >
+                <Ban size={16} className="text-yellow-500" />
+                Cordon (mark unschedulable)
+              </button>
+              <button
+                onClick={() => handleNodeAction('uncordon', nodeActionDialog.name)}
+                className={`w-full text-left px-3 py-2 ${theme.inputDark} ${theme.hover} rounded text-sm flex items-center gap-2`}
+              >
+                <CheckCircle2 size={16} className="text-green-500" />
+                Uncordon (mark schedulable)
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm(`Drain node ${nodeActionDialog.name}? This will evict all pods.`)) {
+                    handleNodeAction('drain', nodeActionDialog.name, { ignoreDaemonSets: true });
+                  }
+                }}
+                className={`w-full text-left px-3 py-2 ${theme.inputDark} ${theme.hover} rounded text-sm flex items-center gap-2`}
+              >
+                <Trash2 size={16} className="text-red-500" />
+                Drain (evict pods & cordon)
+              </button>
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setNodeActionDialog(null)}
                 className={`px-3 py-1.5 text-sm ${theme.textMuted}`}
               >
                 Cancel
