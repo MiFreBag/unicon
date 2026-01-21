@@ -84,6 +84,15 @@ class K8sHandler {
       try { stdin && stdin.end(); } catch (_) {}
     }
     this.execSessions.clear();
+    
+    // Stop port forwards
+    if (this.portForwards) {
+      for (const { proc } of this.portForwards.values()) {
+        try { proc && proc.kill(); } catch (_) {}
+      }
+      this.portForwards.clear();
+    }
+    
     return { success: true };
   }
 
@@ -543,6 +552,249 @@ class K8sHandler {
     try { s.stdin.end(); } catch (_) {}
     this.execSessions.delete(id);
     return { success: true };
+  }
+
+  // ========== PORT FORWARDING ==========
+  
+  /**
+   * Start port forwarding to a pod
+   * @param {Object} params - { namespace, pod, podPort, localPort }
+   */
+  async portForwardStart({ namespace = this.config.namespace || 'default', pod, podPort, localPort }) {
+    if (!pod || !podPort) throw new Error('pod and podPort required');
+    const local = localPort || podPort;
+    const id = `pf-${pod}-${podPort}-${Date.now()}`;
+    
+    const args = [
+      ...(this.config.kubeconfigPath ? ['--kubeconfig', this.config.kubeconfigPath] : []),
+      ...(this.currentContext ? ['--context', this.currentContext] : []),
+      '-n', namespace,
+      'port-forward',
+      `pod/${pod}`,
+      `${local}:${podPort}`
+    ];
+    
+    const proc = spawn('kubectl', args, {
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    
+    let started = false;
+    
+    proc.stdout.on('data', (data) => {
+      const msg = data.toString();
+      if (msg.includes('Forwarding from') && !started) {
+        started = true;
+        this._broadcast({ 
+          type: 'k8s', 
+          data: { 
+            event: 'portForwardStarted', 
+            connectionId: this.connectionId, 
+            id, 
+            pod, 
+            localPort: local, 
+            podPort 
+          } 
+        });
+      }
+    });
+    
+    proc.stderr.on('data', (data) => {
+      this._broadcast({ 
+        type: 'k8s', 
+        data: { 
+          event: 'portForwardError', 
+          connectionId: this.connectionId, 
+          id, 
+          error: data.toString() 
+        } 
+      });
+    });
+    
+    proc.on('close', (code) => {
+      this.portForwards?.delete(id);
+      this._broadcast({ 
+        type: 'k8s', 
+        data: { 
+          event: 'portForwardClosed', 
+          connectionId: this.connectionId, 
+          id, 
+          code 
+        } 
+      });
+    });
+    
+    // Store the port forward
+    if (!this.portForwards) this.portForwards = new Map();
+    this.portForwards.set(id, { proc, pod, namespace, podPort, localPort: local });
+    
+    return { success: true, data: { id, localPort: local, podPort } };
+  }
+  
+  /**
+   * Stop a port forward session
+   */
+  async portForwardStop({ id }) {
+    const pf = this.portForwards?.get(id);
+    if (pf?.proc) {
+      try { pf.proc.kill(); } catch (_) {}
+    }
+    this.portForwards?.delete(id);
+    return { success: true };
+  }
+  
+  /**
+   * List active port forwards
+   */
+  listPortForwards() {
+    const forwards = [];
+    if (this.portForwards) {
+      for (const [id, pf] of this.portForwards) {
+        forwards.push({ id, pod: pf.pod, namespace: pf.namespace, localPort: pf.localPort, podPort: pf.podPort });
+      }
+    }
+    return { success: true, data: { forwards } };
+  }
+
+  // ========== METRICS (kubectl top) ==========
+  
+  /**
+   * Get pod metrics (requires metrics-server)
+   */
+  async getPodMetrics(namespace = this.config.namespace || 'default') {
+    try {
+      const metricsApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
+      const res = namespace 
+        ? await metricsApi.listNamespacedCustomObject('metrics.k8s.io', 'v1beta1', namespace, 'pods')
+        : await metricsApi.listClusterCustomObject('metrics.k8s.io', 'v1beta1', 'pods');
+      
+      const items = (res.body.items || []).map(m => {
+        const containers = m.containers || [];
+        const totalCpu = containers.reduce((sum, c) => sum + this._parseCpu(c.usage?.cpu), 0);
+        const totalMemory = containers.reduce((sum, c) => sum + this._parseMemory(c.usage?.memory), 0);
+        
+        return {
+          name: m.metadata?.name,
+          namespace: m.metadata?.namespace,
+          cpu: this._formatCpu(totalCpu),
+          memory: this._formatMemory(totalMemory),
+          containers: containers.map(c => ({
+            name: c.name,
+            cpu: c.usage?.cpu,
+            memory: c.usage?.memory,
+          })),
+        };
+      });
+      
+      return { success: true, data: { metrics: items } };
+    } catch (e) {
+      // Metrics server might not be installed
+      if (e.statusCode === 404) {
+        return { success: false, error: 'Metrics server not available' };
+      }
+      throw e;
+    }
+  }
+  
+  /**
+   * Get node metrics (requires metrics-server)
+   */
+  async getNodeMetrics() {
+    try {
+      const metricsApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
+      const res = await metricsApi.listClusterCustomObject('metrics.k8s.io', 'v1beta1', 'nodes');
+      
+      const items = (res.body.items || []).map(m => ({
+        name: m.metadata?.name,
+        cpu: m.usage?.cpu,
+        memory: m.usage?.memory,
+        cpuParsed: this._formatCpu(this._parseCpu(m.usage?.cpu)),
+        memoryParsed: this._formatMemory(this._parseMemory(m.usage?.memory)),
+      }));
+      
+      return { success: true, data: { metrics: items } };
+    } catch (e) {
+      if (e.statusCode === 404) {
+        return { success: false, error: 'Metrics server not available' };
+      }
+      throw e;
+    }
+  }
+  
+  // Parse CPU string (e.g., "100m", "1", "500n")
+  _parseCpu(cpu) {
+    if (!cpu) return 0;
+    const str = String(cpu);
+    if (str.endsWith('n')) return parseInt(str) / 1e9;
+    if (str.endsWith('u')) return parseInt(str) / 1e6;
+    if (str.endsWith('m')) return parseInt(str) / 1000;
+    return parseFloat(str);
+  }
+  
+  // Parse memory string (e.g., "128Mi", "1Gi")
+  _parseMemory(mem) {
+    if (!mem) return 0;
+    const str = String(mem);
+    const units = { Ki: 1024, Mi: 1024 ** 2, Gi: 1024 ** 3, Ti: 1024 ** 4, K: 1000, M: 1e6, G: 1e9 };
+    for (const [unit, mult] of Object.entries(units)) {
+      if (str.endsWith(unit)) {
+        return parseInt(str) * mult;
+      }
+    }
+    return parseInt(str);
+  }
+  
+  // Format CPU cores (0.5 -> "500m")
+  _formatCpu(cores) {
+    if (cores < 0.001) return `${Math.round(cores * 1e6)}µ`;
+    if (cores < 1) return `${Math.round(cores * 1000)}m`;
+    return `${cores.toFixed(2)}`;
+  }
+  
+  // Format memory bytes
+  _formatMemory(bytes) {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 ** 2) return `${Math.round(bytes / 1024)}Ki`;
+    if (bytes < 1024 ** 3) return `${Math.round(bytes / 1024 ** 2)}Mi`;
+    return `${(bytes / 1024 ** 3).toFixed(1)}Gi`;
+  }
+
+  // ========== CONTAINER LISTING ==========
+  
+  /**
+   * Get containers for a pod (for multi-container support)
+   */
+  async getContainers(namespace = this.config.namespace || 'default', pod) {
+    if (!pod) throw new Error('pod required');
+    const res = await this.core.readNamespacedPod(pod, namespace);
+    const spec = res.body.spec || {};
+    const status = res.body.status || {};
+    
+    const containers = (spec.containers || []).map(c => {
+      const containerStatus = (status.containerStatuses || []).find(s => s.name === c.name);
+      return {
+        name: c.name,
+        image: c.image,
+        ready: containerStatus?.ready || false,
+        restartCount: containerStatus?.restartCount || 0,
+        state: containerStatus?.state ? Object.keys(containerStatus.state)[0] : 'unknown',
+      };
+    });
+    
+    const initContainers = (spec.initContainers || []).map(c => {
+      const containerStatus = (status.initContainerStatuses || []).find(s => s.name === c.name);
+      return {
+        name: c.name,
+        image: c.image,
+        ready: containerStatus?.ready || false,
+        restartCount: containerStatus?.restartCount || 0,
+        state: containerStatus?.state ? Object.keys(containerStatus.state)[0] : 'unknown',
+        isInit: true,
+      };
+    });
+    
+    return { success: true, data: { containers: [...initContainers, ...containers] } };
   }
 
   // Formatting helpers for k9s-like display

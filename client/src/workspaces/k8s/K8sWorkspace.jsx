@@ -5,7 +5,8 @@ import { listConnections, connectConnection, disconnectConnection, op } from '..
 import { 
   RefreshCw, Play, Square, Server, Box, Layers, Settings, Database,
   Network, Clock, Shield, HardDrive, Users, Activity, Workflow,
-  ChevronRight, ChevronDown, Terminal, X, Zap
+  ChevronRight, ChevronDown, Terminal, X, Zap, Share2, Cpu, MemoryStick,
+  Pause, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 import K8sResourceTable from './K8sResourceTable.jsx';
@@ -91,6 +92,22 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
   
   // Scale dialog
   const [scaleDialog, setScaleDialog] = useState(null);
+  
+  // Auto-refresh
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(5000);
+  
+  // Port forwarding
+  const [portForwards, setPortForwards] = useState([]);
+  const [portForwardDialog, setPortForwardDialog] = useState(null);
+  
+  // Metrics
+  const [showMetrics, setShowMetrics] = useState(false);
+  const [podMetrics, setPodMetrics] = useState([]);
+  const [nodeMetrics, setNodeMetrics] = useState([]);
+  
+  // Container selector for multi-container pods
+  const [containerDialog, setContainerDialog] = useState(null);
 
   const k8sConnections = useMemo(() => (connections || []).filter(c => c.type === 'k8s'), [connections]);
   const selectedConnection = useMemo(() => k8sConnections.find(c => c.id === selectedId), [k8sConnections, selectedId]);
@@ -358,6 +375,11 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
         }
         break;
       }
+      
+      case 'portForward': {
+        setPortForwardDialog({ pod: item.name, mode: 'create' });
+        break;
+      }
     }
   }, [selectedId, resourceType, namespace, loadResources]);
 
@@ -398,6 +420,102 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
       await op(selectedId, 'execInput', { id: terminalPanel.sessionId, data });
     } catch (_) {}
   }, [selectedId, terminalPanel]);
+
+  // ========== AUTO-REFRESH ==========
+  useEffect(() => {
+    if (!autoRefresh || status !== 'connected') return;
+    const interval = setInterval(() => {
+      loadResources(resourceType);
+      if (showMetrics) {
+        loadMetrics();
+      }
+    }, refreshInterval);
+    return () => clearInterval(interval);
+  }, [autoRefresh, status, resourceType, refreshInterval, showMetrics]);
+
+  // ========== PORT FORWARDING ==========
+  const loadPortForwards = useCallback(async () => {
+    if (!selectedId || status !== 'connected') return;
+    try {
+      const res = await op(selectedId, 'portForwards', {});
+      setPortForwards(res?.data?.forwards || []);
+    } catch (_) {}
+  }, [selectedId, status]);
+
+  const startPortForward = useCallback(async (pod, podPort, localPort) => {
+    if (!selectedId) return;
+    try {
+      await op(selectedId, 'portForwardStart', {
+        namespace,
+        pod,
+        podPort: parseInt(podPort, 10),
+        localPort: parseInt(localPort, 10) || undefined,
+      });
+      setPortForwardDialog(null);
+      setTimeout(loadPortForwards, 500);
+    } catch (e) {
+      console.error('Port forward failed:', e);
+    }
+  }, [selectedId, namespace, loadPortForwards]);
+
+  const stopPortForward = useCallback(async (id) => {
+    if (!selectedId) return;
+    try {
+      await op(selectedId, 'portForwardStop', { id });
+      setTimeout(loadPortForwards, 300);
+    } catch (_) {}
+  }, [selectedId, loadPortForwards]);
+
+  // ========== METRICS ==========
+  const loadMetrics = useCallback(async () => {
+    if (!selectedId || status !== 'connected') return;
+    try {
+      if (resourceType === 'pods' || resourceType === 'nodes') {
+        const res = resourceType === 'nodes'
+          ? await op(selectedId, 'nodeMetrics', {})
+          : await op(selectedId, 'podMetrics', { namespace: allNamespaces ? undefined : namespace });
+        if (resourceType === 'nodes') {
+          setNodeMetrics(res?.data?.metrics || []);
+        } else {
+          setPodMetrics(res?.data?.metrics || []);
+        }
+      }
+    } catch (_) {
+      // Metrics server might not be available
+    }
+  }, [selectedId, status, resourceType, namespace, allNamespaces]);
+
+  useEffect(() => {
+    if (showMetrics && status === 'connected') {
+      loadMetrics();
+    }
+  }, [showMetrics, resourceType, namespace, status]);
+
+  // ========== MULTI-CONTAINER SUPPORT ==========
+  const openWithContainerSelection = useCallback(async (action, item) => {
+    if (!item.containers || item.containers.length <= 1) {
+      // Single container, proceed directly
+      handleAction(action, item);
+      return;
+    }
+    // Multiple containers, show selector
+    setContainerDialog({ action, item });
+  }, [handleAction]);
+
+  const handleContainerSelect = useCallback(async (container) => {
+    if (!containerDialog) return;
+    const { action, item } = containerDialog;
+    const itemWithContainer = { ...item, containers: [container] };
+    setContainerDialog(null);
+    handleAction(action, itemWithContainer);
+  }, [containerDialog, handleAction]);
+
+  // Load port forwards on connect
+  useEffect(() => {
+    if (status === 'connected') {
+      loadPortForwards();
+    }
+  }, [status, loadPortForwards]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -633,6 +751,44 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
           </div>
           
           <div className="flex items-center gap-2">
+            {/* Auto-refresh toggle */}
+            <button
+              onClick={() => setAutoRefresh(a => !a)}
+              className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
+                autoRefresh ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'
+              }`}
+              title={autoRefresh ? `Auto-refresh ON (${refreshInterval/1000}s)` : 'Auto-refresh OFF'}
+            >
+              {autoRefresh ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+              Auto
+            </button>
+            
+            {/* Metrics toggle */}
+            {(resourceType === 'pods' || resourceType === 'nodes') && (
+              <button
+                onClick={() => setShowMetrics(m => !m)}
+                className={`flex items-center gap-1 px-2 py-1 text-xs rounded ${
+                  showMetrics ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                }`}
+                title="Toggle metrics"
+              >
+                <Cpu size={14} />
+                Metrics
+              </button>
+            )}
+            
+            {/* Port forwards indicator */}
+            {portForwards.length > 0 && (
+              <button
+                onClick={() => setPortForwardDialog({ mode: 'list' })}
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 text-white rounded"
+                title="Active port forwards"
+              >
+                <Share2 size={14} />
+                {portForwards.length} PF
+              </button>
+            )}
+            
             {selectedConnection && (
               <ConnectionBadge connection={selectedConnection} status={status} />
             )}
@@ -754,6 +910,110 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                 className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 rounded"
               >
                 Scale
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Port Forward Dialog */}
+      {portForwardDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg shadow-xl w-96 p-4">
+            {portForwardDialog.mode === 'list' ? (
+              <>
+                <h3 className="text-sm font-medium mb-4">Active Port Forwards</h3>
+                <div className="space-y-2 max-h-64 overflow-auto mb-4">
+                  {portForwards.map(pf => (
+                    <div key={pf.id} className="flex items-center justify-between p-2 bg-gray-900 rounded">
+                      <div>
+                        <div className="text-sm text-white">{pf.pod}</div>
+                        <div className="text-xs text-gray-400">localhost:{pf.localPort} → {pf.podPort}</div>
+                      </div>
+                      <button
+                        onClick={() => stopPortForward(pf.id)}
+                        className="px-2 py-1 text-xs text-red-400 hover:bg-gray-700 rounded"
+                      >
+                        Stop
+                      </button>
+                    </div>
+                  ))}
+                  {portForwards.length === 0 && (
+                    <div className="text-sm text-gray-500 text-center py-4">No active port forwards</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-sm font-medium mb-4">Port Forward to {portForwardDialog.pod}</h3>
+                <div className="space-y-3 mb-4">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Pod Port</label>
+                    <input
+                      type="number"
+                      id="pf-pod-port"
+                      placeholder="80"
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Local Port (optional)</label>
+                    <input
+                      type="number"
+                      id="pf-local-port"
+                      placeholder="Same as pod port"
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPortForwardDialog(null)}
+                className="px-3 py-1.5 text-sm text-gray-400 hover:text-white"
+              >
+                Close
+              </button>
+              {portForwardDialog.mode !== 'list' && (
+                <button
+                  onClick={() => startPortForward(
+                    portForwardDialog.pod,
+                    document.getElementById('pf-pod-port').value,
+                    document.getElementById('pf-local-port').value
+                  )}
+                  className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 rounded"
+                >
+                  Start
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Container Selector Dialog */}
+      {containerDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg shadow-xl w-80 p-4">
+            <h3 className="text-sm font-medium mb-4">Select Container</h3>
+            <div className="space-y-2 max-h-64 overflow-auto mb-4">
+              {containerDialog.item.containers.map(c => (
+                <button
+                  key={c}
+                  onClick={() => handleContainerSelect(c)}
+                  className="w-full text-left px-3 py-2 bg-gray-900 hover:bg-gray-700 rounded text-sm text-white"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setContainerDialog(null)}
+                className="px-3 py-1.5 text-sm text-gray-400 hover:text-white"
+              >
+                Cancel
               </button>
             </div>
           </div>

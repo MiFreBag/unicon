@@ -899,6 +899,32 @@ const createApp = (state) => {
             const result = await h.execClose({ id: params.id });
             return res.json(result);
           }
+          // Port forwarding
+          case 'portForwardStart': {
+            const result = await h.portForwardStart({ namespace: params.namespace, pod: params.pod, podPort: params.podPort, localPort: params.localPort });
+            return res.json(result);
+          }
+          case 'portForwardStop': {
+            const result = await h.portForwardStop({ id: params.id });
+            return res.json(result);
+          }
+          case 'portForwards': {
+            return res.json(h.listPortForwards());
+          }
+          // Metrics
+          case 'podMetrics': {
+            const result = await h.getPodMetrics(params.namespace);
+            return res.json(result);
+          }
+          case 'nodeMetrics': {
+            const result = await h.getNodeMetrics();
+            return res.json(result);
+          }
+          // Container listing for multi-container pods
+          case 'getContainers': {
+            const result = await h.getContainers(params.namespace, params.pod);
+            return res.json(result);
+          }
           default:
             return res.status(400).json({ success: false, error: `Unknown K8s operation: ${operation}` });
         }
@@ -1432,6 +1458,38 @@ const createApp = (state) => {
       if (!handler) return res.status(404).json({ success:false, error:'monitor_not_found' });
       const result = await handler.monitorStop(monitorId);
       res.json(result);
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+  // Connect a dataset explicitly (optional)
+  apiRouter.post('/opcua/connect', async (req, res) => {
+    try {
+      const { datasetId } = req.body||{};
+      if (!datasetId) return res.status(400).json({ success:false, error:'datasetId required' });
+      const conn = await ensureOpcuaConnectionForDataset(datasetId, connections, activeConnections, db);
+      res.json({ success:true, connectionId: conn.id });
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+  // Browse using datasetId (query: datasetId, nodeId)
+  apiRouter.get('/opcua/browse', async (req, res) => {
+    try {
+      const datasetId = req.query.datasetId;
+      const nodeId = req.query.nodeId || 'RootFolder';
+      if (!datasetId) return res.status(400).json({ success:false, error:'datasetId required' });
+      const conn = await ensureOpcuaConnectionForDataset(datasetId, connections, activeConnections, db);
+      const active = activeConnections.get(conn.id);
+      const out = await active.handler.browse(nodeId);
+      res.json(out);
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+  // Read using datasetId (body: nodes[])
+  apiRouter.post('/opcua/read', async (req, res) => {
+    try {
+      const { datasetId, nodes } = req.body||{};
+      if (!datasetId || !Array.isArray(nodes) || !nodes.length) return res.status(400).json({ success:false, error:'datasetId and nodes required' });
+      const conn = await ensureOpcuaConnectionForDataset(datasetId, connections, activeConnections, db);
+      const active = activeConnections.get(conn.id);
+      const out = await active.handler.read(nodes);
+      res.json(out);
     } catch(e){ res.status(500).json({ success:false, error: e.message }); }
   });
 

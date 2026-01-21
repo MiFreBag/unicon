@@ -45,6 +45,7 @@
     "node-red": "^3.1.0",
     "node-red-contrib-opcua": "*",
     "node-red-dashboard": "*",
+    "mqtt": "^5.10.0",
     "pg": "^8.11.3",
     "sqlite3": "^5.1.6",
     "ssh2": "^1.15.0",

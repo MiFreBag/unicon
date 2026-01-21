@@ -171,6 +171,23 @@ class OPCUAHandler {
     fs.existsSync(baseLog) || fs.writeFileSync(baseLog, 'timestamp,nodeId,value,status\n');
 
     const items = [];
+    // Lazy MQTT client (optional)
+    let mqttClient = null;
+    const mqttUrl = process.env.MQTT_BROKER_URL || process.env.MQTT_URL || '';
+    if (mqttUrl) {
+      try {
+        if (!global.__mqttClient) {
+          const mqtt = require('mqtt');
+          global.__mqttClient = mqtt.connect(mqttUrl, {
+            username: process.env.MQTT_USERNAME || undefined,
+            password: process.env.MQTT_PASSWORD || undefined,
+            reconnectPeriod: 2000,
+          });
+        }
+        mqttClient = global.__mqttClient;
+      } catch(_) { mqttClient = null; }
+    }
+
     for (const nid of ids) {
       const mi = await sub.monitor({ nodeId: nid, attributeId: AttributeIds.Value }, { samplingInterval, discardOldest, queueSize }, TimestampsToReturn.Both);
       mi.on('changed', (dv) => {
@@ -181,6 +198,11 @@ class OPCUAHandler {
           const line = `${ts},${JSON.stringify(nid)},${JSON.stringify(val)},${JSON.stringify(status)}`;
           fs.appendFile(baseLog, line + '\n', ()=>{});
           if (global.broadcast) global.broadcast({ type: 'opcua', data: { event: 'data', connectionId: this.connectionId, nodeId: nid, value: val, status, ts } });
+          if (mqttClient && mqttClient.connected) {
+            const topic = `opcua/${datasetId}/${encodeURIComponent(String(nid))}`;
+            const payload = JSON.stringify({ ts, nodeId: nid, value: val, status, connectionId: this.connectionId });
+            try { mqttClient.publish(topic, payload, { qos: 0, retain: false }); } catch(_){}
+          }
         } catch(_){ }
       });
       items.push(mi);

@@ -26,7 +26,8 @@ import {
   RefreshCw,
   Send,
   Play,
-  Pause
+  Pause,
+  Search
 } from 'lucide-react';
 
 const UniversalTestClient = () => {

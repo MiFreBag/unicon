@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { 
   ArrowUp, ArrowDown, Search, RefreshCw, Trash2, FileText, 
-  Terminal, Scale, RotateCcw, ChevronUp, ChevronDown 
+  Terminal, Scale, RotateCcw, ChevronUp, ChevronDown, Share2
 } from 'lucide-react';
 
 // Column definitions for each resource type
@@ -361,6 +361,13 @@ export default function K8sResourceTable({
                 title="Shell (s)"
               >
                 <Terminal size={12} /> Shell
+              </button>
+              <button
+                onClick={() => onAction?.('portForward', selectedItem)}
+                className="px-2 py-0.5 text-gray-300 hover:bg-gray-700 rounded flex items-center gap-1"
+                title="Port Forward (p)"
+              >
+                <Share2 size={12} /> Port Forward
               </button>
             </>
           )}

@@ -18,8 +18,6 @@ function makeWSUrl() {
   return envUrl || sameOrigin;
 }
 
-import { createConnection } from '../../lib/api';
-
 export default function SSHWorkspace({ connectionId: initialConnectionId, openTab }) {
   const [connections, setConnections] = useState([]);
   const [selectedId, setSelectedId] = useState('');
