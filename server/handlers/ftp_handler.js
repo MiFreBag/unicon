@@ -55,6 +55,17 @@ class FtpHandler {
     await this.client.downloadTo(stream, remotePath)
   }
 
+  async downloadToBuffer(remotePath) {
+    if (!this.connected) throw new Error('FTP not connected')
+    const chunks = []
+    const { Writable } = require('stream')
+    const sink = new Writable({
+      write(chunk, enc, cb) { chunks.push(Buffer.from(chunk)); cb() }
+    })
+    await this.client.downloadTo(sink, remotePath)
+    return Buffer.concat(chunks)
+  }
+
   async remove(remotePath) {
     if (!this.connected) throw new Error('FTP not connected')
     try {
@@ -63,6 +74,18 @@ class FtpHandler {
       // If it is a directory, try removeDir
       try { await this.client.removeDir(remotePath) } catch (_) { throw e }
     }
+    return { success: true }
+  }
+
+  async mkdir(remotePath) {
+    if (!this.connected) throw new Error('FTP not connected')
+    await this.client.ensureDir(remotePath)
+    return { success: true }
+  }
+
+  async rename(fromPath, toPath) {
+    if (!this.connected) throw new Error('FTP not connected')
+    await this.client.rename(fromPath, toPath)
     return { success: true }
   }
 }

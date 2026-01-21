@@ -9,7 +9,8 @@ const crypto = require('crypto');
 const multer = require('multer');
 const EnhancedRestHandler = require('./handlers/enhanced_rest_handler');
 let verifyJWTMiddleware = null;
-try { verifyJWTMiddleware = require('./auth/middleware').verifyJWT; } catch (_) { /* auth not enabled */ }
+let requireRolesMiddleware = null;
+try { const mw = require('./auth/middleware'); verifyJWTMiddleware = mw.verifyJWT; requireRolesMiddleware = mw.requireRoles; } catch (_) { /* auth not enabled */ }
 const K8sHandler = require('./handlers/k8s_handler');
 const WSHandler = require('./handlers/ws_handler');
 // Lazy-require SQL handler to avoid module loader issues in certain test environments
@@ -43,6 +44,8 @@ const DATA_DIR = process.env.CONNECTION_DATA_DIR || path.join(__dirname, 'data')
 const CONNECTIONS_FILE = path.join(DATA_DIR, 'connections.json');
 const PERSISTENCE = process.env.PERSISTENCE || 'file';
 const SQLITE_DB_PATH = path.join(DATA_DIR, 'unicon.db');
+const TEMPLATES_FILE = path.join(DATA_DIR, 'templates.json');
+const WORKSPACES_FILE = path.join(DATA_DIR, 'workspaces.json');
 
 const parseAllowedOrigins = () => {
   const envOrigins = process.env.ALLOWED_ORIGINS
@@ -68,12 +71,28 @@ const ensureDataStore = () => {
   }
 };
 
+const loadTemplates = async () => {
+  try {
+    ensureDataStore();
+    if (!fs.existsSync(TEMPLATES_FILE)) return [];
+    const raw = await fs.promises.readFile(TEMPLATES_FILE, 'utf8');
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+};
+
+const saveTemplates = async (arr) => {
+  ensureDataStore();
+  await fs.promises.writeFile(TEMPLATES_FILE, JSON.stringify(arr, null, 2), 'utf8');
+};
+
 const normalizeConnection = (connection) => ({
   id: connection.id || uuidv4(),
   name: connection.name || 'Unbenannte Verbindung',
   type: connection.type || 'unknown',
   config: connection.config || {},
   createdAt: connection.createdAt || new Date().toISOString(),
+  workspaceId: connection.workspaceId || null,
   status: connection.status || 'disconnected'
 });
 
@@ -125,6 +144,21 @@ const persistConnections = async (connections, db) => {
 const { DB } = (() => {
   try { return require('./persistence/db'); } catch { return { DB: null }; }
 })();
+
+const loadWorkspaces = async () => {
+  try {
+    ensureDataStore();
+    if (!fs.existsSync(WORKSPACES_FILE)) return [];
+    const raw = await fs.promises.readFile(WORKSPACES_FILE, 'utf8');
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+};
+
+const saveWorkspaces = async (arr) => {
+  ensureDataStore();
+  await fs.promises.writeFile(WORKSPACES_FILE, JSON.stringify(arr, null, 2), 'utf8');
+};
 
 const buildState = async () => {
   let db = null;
@@ -187,6 +221,8 @@ const createApp = (state) => {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
   const apiRouter = express.Router();
+  app.use('/unicon/api', apiRouter);
+  const roleMw = (role) => (ENFORCE && typeof requireRolesMiddleware === 'function') ? requireRolesMiddleware(role) : (req,res,next)=>next();
 
   // Add CSP for production/Electron when serving static /unicon content
   const enableCsp = process.env.ENABLE_CSP === '1' || process.env.ELECTRON === '1' || process.env.NODE_ENV === 'production';
@@ -266,24 +302,56 @@ const createApp = (state) => {
   // In tests, never enforce auth; otherwise only when AUTH_ENFORCE=1 is set
   const IN_TEST = process.env.NODE_ENV === 'test' || !!process.env.JEST_WORKER_ID;
   const ENFORCE = !IN_TEST && process.env.AUTH_ENFORCE === '1' && typeof verifyJWTMiddleware === 'function';
-
-  apiRouter.get('/connections', ENFORCE ? verifyJWTMiddleware : (req,res,next)=>next(), async (req, res) => {
+  const MAYBE_VERIFY = ENFORCE ? verifyJWTMiddleware : (req,res,next)=>next();
+  const roleOrder = { owner: 3, admin: 2, member: 1, viewer: 0 };
+  const requireWorkspaceRole = (minRole) => async (req, res, next) => {
+    if (!ENFORCE) return next();
     try {
+      const rid = req.params.id;
+      const userId = req.user?.sub;
+      if (!userId) return res.status(401).json({ success:false, error:'unauthorized' });
+      const role = await db.getWorkspaceRole(userId, rid);
+      if (!role || (roleOrder[role] ?? -1) < (roleOrder[minRole] ?? 99)) return res.status(403).json({ success:false, error:'forbidden' });
+      next();
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  };
+
+  apiRouter.get('/connections', MAYBE_VERIFY, async (req, res) => {
+    try {
+      const workspaceId = req.query.workspaceId || null;
+      // If auth enforced, restrict results to workspaces the user belongs to
+      if (ENFORCE && db && req.user?.sub) {
+        if (workspaceId) {
+          const role = await db.getWorkspaceRole(req.user.sub, workspaceId);
+          if (!role) return res.status(403).json({ success:false, error:'forbidden' });
+          const fresh = await db.getConnections(workspaceId);
+          return res.json({ success:true, connections: fresh });
+        } else {
+          const mine = await db.listWorkspacesForUser(req.user.sub);
+          const ids = new Set(mine.map(w=>w.id));
+          const all = await db.getConnections();
+          return res.json({ success:true, connections: all.filter(c => !c.workspaceId || ids.has(c.workspaceId)) });
+        }
+      }
       if (db) {
-        const fresh = await db.getConnections();
+        const fresh = await db.getConnections(workspaceId || null);
+        if (workspaceId) { return res.json({ success: true, connections: fresh }); }
         connections.splice(0, connections.length, ...fresh);
       }
-      res.json({ success: true, connections });
+      const out = workspaceId ? connections.filter(c => (c.workspaceId || null) === workspaceId) : connections;
+      res.json({ success: true, connections: out });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
   });
 
-  apiRouter.post('/connections', ENFORCE ? verifyJWTMiddleware : (req,res,next)=>next(), async (req, res) => {
+  apiRouter.post('/connections', MAYBE_VERIFY, async (req, res) => {
     try {
+      const workspaceId = req.body?.workspaceId || null;
       const connection = {
         id: uuidv4(),
         ...req.body,
+        workspaceId,
         createdAt: new Date().toISOString(),
         status: 'disconnected'
       };
@@ -291,6 +359,15 @@ const createApp = (state) => {
       connections.push(connection);
 
       await persistConnections(connections, db);
+      if (db && workspaceId) {
+        try {
+          if (ENFORCE && req.user?.sub) {
+            const r = await db.getWorkspaceRole(req.user.sub, workspaceId);
+            if (!r || (roleOrder[r] ?? -1) < roleOrder.member) return res.status(403).json({ success:false, error:'forbidden' });
+          }
+          await db.assignConnectionToWorkspace(connection.id, workspaceId);
+        } catch(_){}
+      }
 
       broadcast({
         type: 'log',
@@ -303,7 +380,7 @@ const createApp = (state) => {
     }
   });
 
-  apiRouter.put('/connections/:id', ENFORCE ? verifyJWTMiddleware : (req,res,next)=>next(), async (req, res) => {
+  apiRouter.put('/connections/:id', MAYBE_VERIFY, async (req, res) => {
     try {
       const id = req.params.id;
       const idx = connections.findIndex(c => c.id === id);
@@ -314,12 +391,18 @@ const createApp = (state) => {
         name: req.body?.name ?? existing.name,
         type: req.body?.type ?? existing.type,
         config: req.body?.config ?? existing.config,
+        workspaceId: (req.body?.workspaceId !== undefined) ? req.body.workspaceId : existing.workspaceId || null,
         createdAt: existing.createdAt || new Date().toISOString(),
         status: 'disconnected'
       });
       connections[idx] = updated;
       if (db) {
+        if (ENFORCE && req.user?.sub && updated.workspaceId) {
+          const r = await db.getWorkspaceRole(req.user.sub, updated.workspaceId);
+          if (!r || (roleOrder[r] ?? -1) < roleOrder.member) return res.status(403).json({ success:false, error:'forbidden' });
+        }
         await db.upsertConnection(updated);
+        try { await db.assignConnectionToWorkspace(id, updated.workspaceId || null); } catch(_){}
       } else {
         await persistConnections(connections, null);
       }
@@ -394,6 +477,10 @@ const createApp = (state) => {
         } else if (connection.type === 'ftp') {
           const FtpHandler = require('./handlers/ftp_handler');
           handler = new FtpHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'sftp') {
+          const SftpHandler = require('./handlers/sftp_handler');
+          handler = new SftpHandler(connection.id, connection.config || {});
           await handler.connect();
         }
       } catch (e) {
@@ -689,14 +776,37 @@ const createApp = (state) => {
         }
       }
 
-      // SQL operations
+      // FTP operations
       if (connection.type === 'ftp' && active.handler) {
         const h = active.handler;
         switch (operation) {
           case 'list':
             return res.json(await h.list(params?.path || '.'));
+          case 'mkdir':
+            return res.json(await h.mkdir(params?.path));
+          case 'rename':
+            return res.json(await h.rename(params?.from, params?.to));
+          case 'remove':
+            return res.json(await h.remove(params?.path));
           default:
             return res.status(400).json({ success: false, error: `Unknown FTP operation: ${operation}` });
+        }
+      }
+
+      // SFTP operations
+      if (connection.type === 'sftp' && active.handler) {
+        const h = active.handler;
+        switch (operation) {
+          case 'list':
+            return res.json(await h.list(params?.path || '.'));
+          case 'mkdir':
+            return res.json(await h.mkdir(params?.path));
+          case 'rename':
+            return res.json(await h.rename(params?.from, params?.to));
+          case 'remove':
+            return res.json(await h.remove(params?.path));
+          default:
+            return res.status(400).json({ success: false, error: `Unknown SFTP operation: ${operation}` });
         }
       }
 
@@ -798,6 +908,179 @@ const createApp = (state) => {
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
+  });
+
+  // Workspaces API (file or sqlite)
+  apiRouter.get('/workspaces', MAYBE_VERIFY, async (req, res) => {
+    try {
+      if (db && typeof db.listWorkspaces === 'function') {
+        if (ENFORCE && req.user?.sub) {
+          const list = await db.listWorkspacesForUser(req.user.sub);
+          return res.json({ success:true, workspaces: list });
+        }
+        const list = await db.listWorkspaces();
+        return res.json({ success:true, workspaces: list });
+      }
+      const list = await loadWorkspaces();
+      return res.json({ success:true, workspaces: list });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/workspaces', MAYBE_VERIFY, async (req, res) => {
+    try {
+      const name = (req.body?.name||'').trim();
+      if (!name) return res.status(400).json({ success:false, error:'name required' });
+      const ws = { id: uuidv4(), name, createdAt: new Date().toISOString() };
+      if (db && typeof db.createWorkspace === 'function') {
+        await db.createWorkspace(ws);
+        try { if (ENFORCE && req.user?.sub && db.addWorkspaceMember) { await db.addWorkspaceMember(ws.id, req.user.sub, 'owner'); } } catch(_){ }
+        return res.json({ success:true, workspace: ws });
+      }
+      const list = await loadWorkspaces(); list.push(ws); await saveWorkspaces(list);
+      return res.json({ success:true, workspace: ws });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.put('/workspaces/:id', MAYBE_VERIFY, requireWorkspaceRole('admin'), async (req, res) => {
+    try {
+      const name = (req.body?.name||'').trim();
+      if (!name) return res.status(400).json({ success:false, error:'name required' });
+      if (db && typeof db.updateWorkspaceName === 'function') {
+        await db.updateWorkspaceName(req.params.id, name);
+        return res.json({ success:true });
+      }
+      const list = await loadWorkspaces();
+      const idx = list.findIndex(w => w.id === req.params.id);
+      if (idx === -1) return res.status(404).json({ success:false, error:'not_found' });
+      list[idx].name = name; await saveWorkspaces(list);
+      return res.json({ success:true });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.delete('/workspaces/:id', MAYBE_VERIFY, requireWorkspaceRole('owner'), async (req, res) => {
+    try {
+      if (db && typeof db.deleteWorkspace === 'function') {
+        await db.deleteWorkspace(req.params.id);
+        return res.json({ success:true });
+      }
+      const list = await loadWorkspaces();
+      const next = list.filter(w => w.id !== req.params.id); await saveWorkspaces(next);
+      // Detach workspace from connections in file mode
+      const changed = connections.map(c => c.workspaceId === req.params.id ? { ...c, workspaceId: null } : c);
+      connections.splice(0, connections.length, ...changed);
+      await persistConnections(connections, null);
+      return res.json({ success:true });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+
+  // Workspace members API (RBAC v1)
+  apiRouter.get('/workspaces/:id/members', MAYBE_VERIFY, requireWorkspaceRole('viewer'), async (req,res)=>{
+    try {
+      if (!db || !db.listWorkspaceMembers) return res.status(501).json({ success:false, error:'workspace_members_unsupported' });
+      const list = await db.listWorkspaceMembers(req.params.id);
+      res.json({ success:true, members: list });
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/workspaces/:id/members', MAYBE_VERIFY, requireWorkspaceRole('admin'), async (req,res)=>{
+    try {
+      if (!db || !db.addWorkspaceMember) return res.status(501).json({ success:false, error:'workspace_members_unsupported' });
+      const { userId, role } = req.body||{}; if(!userId||!role) return res.status(400).json({ success:false, error:'userId and role required' });
+      if (role === 'owner') return res.status(400).json({ success:false, error:'use transfer endpoint for owner' });
+      await db.addWorkspaceMember(req.params.id, userId, role);
+      res.json({ success:true });
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.put('/workspaces/:id/members/:userId', MAYBE_VERIFY, requireWorkspaceRole('admin'), async (req,res)=>{
+    try {
+      if (!db || !db.addWorkspaceMember) return res.status(501).json({ success:false, error:'workspace_members_unsupported' });
+      const { role } = req.body||{}; if(!role) return res.status(400).json({ success:false, error:'role required' });
+      if (role === 'owner') return res.status(400).json({ success:false, error:'use transfer endpoint for owner' });
+      await db.addWorkspaceMember(req.params.id, req.params.userId, role);
+      res.json({ success:true });
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.delete('/workspaces/:id/members/:userId', MAYBE_VERIFY, requireWorkspaceRole('admin'), async (req,res)=>{
+    try {
+      if (!db || !db.removeWorkspaceMember) return res.status(501).json({ success:false, error:'workspace_members_unsupported' });
+      await db.removeWorkspaceMember(req.params.id, req.params.userId);
+      res.json({ success:true });
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/workspaces/:id/owner-transfer', MAYBE_VERIFY, requireWorkspaceRole('owner'), async (req,res)=>{
+    try {
+      if (!db || !db.transferWorkspaceOwner) return res.status(501).json({ success:false, error:'workspace_members_unsupported' });
+      const { toUserId } = req.body||{}; if(!toUserId) return res.status(400).json({ success:false, error:'toUserId required' });
+      await db.transferWorkspaceOwner(req.params.id, toUserId);
+      res.json({ success:true });
+    } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+
+  // Templates library API (file-based)
+  apiRouter.get('/templates', ENFORCE ? verifyJWTMiddleware : (req,res,next)=>next(), async (req, res) => {
+    try { const list = await loadTemplates(); res.json({ success:true, templates: list }); }
+    catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/templates', ENFORCE ? [verifyJWTMiddleware, roleMw('developer')] : (req,res,next)=>next(), async (req, res) => {
+    try {
+      const { name, type, config, tags } = req.body || {};
+      if (!name || !type) return res.status(400).json({ success:false, error:'name and type required' });
+      const list = await loadTemplates();
+      const item = { id: uuidv4(), name, type, config: config||{}, tags: Array.isArray(tags)?tags:[], ts: new Date().toISOString() };
+      list.push(item);
+      await saveTemplates(list);
+      res.json({ success:true, template: item });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.delete('/templates/:id', ENFORCE ? [verifyJWTMiddleware, roleMw('developer')] : (req,res,next)=>next(), async (req, res) => {
+    try {
+      const list = await loadTemplates();
+      const next = list.filter(t => t.id !== req.params.id);
+      await saveTemplates(next);
+      res.json({ success:true });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/templates/import', ENFORCE ? [verifyJWTMiddleware, roleMw('developer')] : (req,res,next)=>next(), async (req, res) => {
+    try {
+      const payload = req.body;
+      const arr = Array.isArray(payload) ? payload : payload?.templates;
+      if (!Array.isArray(arr)) return res.status(400).json({ success:false, error:'invalid format' });
+      await saveTemplates(arr.map(x => ({ id: x.id || uuidv4(), name: x.name, type: x.type, config: x.config||{}, tags: Array.isArray(x.tags)?x.tags:[], ts: x.ts || new Date().toISOString() })));
+      res.json({ success:true, count: arr.length });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.put('/templates/:id', ENFORCE ? [verifyJWTMiddleware, roleMw('developer')] : (req,res,next)=>next(), async (req, res) => {
+    try {
+      const { name, type, tags, config } = req.body || {};
+      const list = await loadTemplates();
+      const idx = list.findIndex(t => t.id === req.params.id);
+      if (idx === -1) return res.status(404).json({ success:false, error:'not_found' });
+      const cur = list[idx];
+      const updated = {
+        ...cur,
+        ...(name != null ? { name } : {}),
+        ...(type != null ? { type } : {}),
+        ...(Array.isArray(tags) ? { tags } : {}),
+        ...(config != null ? { config } : {}),
+        ts: new Date().toISOString()
+      };
+      list[idx] = updated;
+      await saveTemplates(list);
+      res.json({ success:true, template: updated });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/templates/bulk-delete', ENFORCE ? [verifyJWTMiddleware, roleMw('developer')] : (req,res,next)=>next(), async (req, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      if (!ids.length) return res.status(400).json({ success:false, error:'ids required' });
+      const list = await loadTemplates();
+      const next = list.filter(t => !ids.includes(t.id));
+      await saveTemplates(next);
+      res.json({ success:true, deleted: ids.length });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.get('/templates/export', ENFORCE ? [verifyJWTMiddleware, roleMw('developer')] : (req,res,next)=>next(), async (req, res) => {
+    try {
+      const list = await loadTemplates();
+      res.setHeader('Content-Disposition', 'attachment; filename="templates.json"');
+      res.json({ success:true, templates: list });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
   });
 
   // PKCE helpers
@@ -1141,6 +1424,110 @@ const createApp = (state) => {
     } catch (e) {
       res.status(500).send(e.message || 'download error');
     }
+  });
+
+  // FTP delete
+  apiRouter.post('/ftp/delete', async (req, res) => {
+    try {
+      const { connectionId, path: p } = req.body || {};
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'ftp') return res.status(400).json({ success: false, error: 'FTP connection not active' });
+      const result = await active.handler.remove(p);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // FTP text helpers (UTF-8)
+  apiRouter.get('/ftp/text', async (req, res) => {
+    try {
+      const connectionId = req.query.connectionId;
+      const remotePath = req.query.path;
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'ftp') return res.status(400).send('FTP connection not active');
+      const buf = await active.handler.downloadToBuffer(remotePath);
+      res.json({ success: true, size: buf.length, content: buf.toString('utf8') });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/ftp/text', async (req, res) => {
+    try {
+      const { connectionId, path: remotePath, content } = req.body || {};
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'ftp') return res.status(400).json({ success: false, error: 'FTP connection not active' });
+      const buf = Buffer.from(String(content||''), 'utf8');
+      const result = await active.handler.uploadFromBuffer(buf, remotePath);
+      res.json(result);
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+
+  // SFTP upload (multipart/form-data)
+  apiRouter.post('/sftp/upload', upload.single('file'), async (req, res) => {
+    try {
+      const connectionId = req.query.connectionId || req.body?.connectionId;
+      const remoteDir = req.query.path || req.body?.path || '.';
+      if (!req.file) return res.status(400).json({ success: false, error: 'file required' });
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'sftp') return res.status(400).json({ success: false, error: 'SFTP connection not active' });
+      const remotePath = remoteDir.endsWith('/') ? `${remoteDir}${req.file.originalname}` : `${remoteDir}/${req.file.originalname}`;
+      const result = await active.handler.uploadFromBuffer(req.file.buffer, remotePath);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // SFTP download (binary)
+  apiRouter.get('/sftp/download', async (req, res) => {
+    try {
+      const connectionId = req.query.connectionId;
+      const remotePath = req.query.path;
+      if (!connectionId || !remotePath) return res.status(400).send('connectionId and path required');
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'sftp') return res.status(400).send('SFTP connection not active');
+      const filename = path.basename(remotePath);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      await active.handler.downloadToStream(res, remotePath);
+      res.end();
+    } catch (e) {
+      res.status(500).send(e.message || 'download error');
+    }
+  });
+
+  // SFTP delete
+  apiRouter.post('/sftp/delete', async (req, res) => {
+    try {
+      const { connectionId, path: p } = req.body || {};
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'sftp') return res.status(400).json({ success: false, error: 'SFTP connection not active' });
+      const result = await active.handler.remove(p);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // SFTP text helpers (UTF-8)
+  apiRouter.get('/sftp/text', async (req, res) => {
+    try {
+      const connectionId = req.query.connectionId;
+      const remotePath = req.query.path;
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'sftp') return res.status(400).send('SFTP connection not active');
+      const buf = await active.handler.downloadToBuffer(remotePath);
+      res.json({ success: true, size: buf.length, content: buf.toString('utf8') });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.post('/sftp/text', async (req, res) => {
+    try {
+      const { connectionId, path: remotePath, content } = req.body || {};
+      const active = activeConnections.get(connectionId);
+      if (!active || active.type !== 'sftp') return res.status(400).json({ success: false, error: 'SFTP connection not active' });
+      const buf = Buffer.from(String(content||''), 'utf8');
+      const result = await active.handler.uploadFromBuffer(buf, remotePath);
+      res.json(result);
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
   });
 
   // FTP utilities end

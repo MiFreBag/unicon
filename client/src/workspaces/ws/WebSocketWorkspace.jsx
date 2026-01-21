@@ -3,8 +3,10 @@ import React, { useEffect, useState } from 'react';
 import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
+import { EXAMPLE_PRESETS } from '../../features/examples/presets.js';
+import { createConnection } from '../../lib/api';
 
-export default function WebSocketWorkspace({ connection }) {
+export default function WebSocketWorkspace({ connection, openTab }) {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [autoReconnect, setAutoReconnect] = useState(true);
@@ -64,6 +66,19 @@ export default function WebSocketWorkspace({ connection }) {
         <ConnectionBadge connection={connection} status={status} />
       </div>
       <div className="flex items-center gap-3 text-sm">
+        <div>
+          <span className="mr-2">Quick pick:</span>
+          <select className="border rounded px-2 py-1" onChange={async (e)=>{
+            const idx = Number(e.target.value); if (isNaN(idx)) return;
+            const ex = EXAMPLE_PRESETS.ws[idx];
+            const res = await createConnection({ name: `${ex.name} (WS)`, type: 'websocket', config: { url: ex.url } });
+            const conn = res.connection;
+            if (typeof openTab === 'function') openTab('ws', { connectionId: conn.id, connection: conn, title: `WebSocket • ${ex.name}` });
+          }}>
+            <option>Pick…</option>
+            {EXAMPLE_PRESETS.ws.map((ex,i)=>(<option key={ex.name} value={i}>{ex.name}</option>))}
+          </select>
+        </div>
         <span>Status: {status}</span>
         <label className="flex items-center gap-1">
           <input

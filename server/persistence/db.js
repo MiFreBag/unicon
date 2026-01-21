@@ -21,6 +21,22 @@ class DB {
       config TEXT NOT NULL,
       createdAt TEXT NOT NULL
     )`);
+    // Workspaces and mapping (one workspace per connection for v1)
+    await this._run(`CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    )`);
+    await this._run(`CREATE TABLE IF NOT EXISTS connection_workspaces (
+      connection_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL
+    )`);
+    await this._run(`CREATE TABLE IF NOT EXISTS workspace_members (
+      workspace_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, user_id)
+    )`);
     await this._run(`CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
@@ -66,9 +82,21 @@ class DB {
     });
   }
 
-  async getConnections() {
-    const rows = await this._all('SELECT id, name, type, config, createdAt FROM connections ORDER BY createdAt ASC');
-    return rows.map(r => ({ id: r.id, name: r.name, type: r.type, config: JSON.parse(r.config), createdAt: r.createdAt, status: 'disconnected' }));
+  async getConnections(workspaceId = null) {
+    if (workspaceId) {
+      const rows = await this._all(`
+        SELECT c.id, c.name, c.type, c.config, c.createdAt, cw.workspace_id as workspaceId
+        FROM connections c
+        JOIN connection_workspaces cw ON cw.connection_id = c.id
+        WHERE cw.workspace_id = ?
+        ORDER BY c.createdAt ASC`, [workspaceId]);
+      return rows.map(r => ({ id: r.id, name: r.name, type: r.type, config: JSON.parse(r.config), createdAt: r.createdAt, workspaceId: r.workspaceId, status: 'disconnected' }));
+    } else {
+      const rows = await this._all('SELECT id, name, type, config, createdAt FROM connections ORDER BY createdAt ASC');
+      // attach workspace if present
+      const map = new Map((await this._all('SELECT connection_id, workspace_id FROM connection_workspaces')).map(r => [r.connection_id, r.workspace_id]));
+      return rows.map(r => ({ id: r.id, name: r.name, type: r.type, config: JSON.parse(r.config), createdAt: r.createdAt, workspaceId: map.get(r.id) || null, status: 'disconnected' }));
+    }
   }
 
   async upsertConnection(conn) {
@@ -85,7 +113,66 @@ class DB {
 
   async replaceConnections(conns) {
     await this._run('DELETE FROM connections');
-    for (const c of conns) await this.upsertConnection(c);
+    await this._run('DELETE FROM connection_workspaces');
+    for (const c of conns) {
+      await this.upsertConnection(c);
+      if (c.workspaceId) await this.assignConnectionToWorkspace(c.id, c.workspaceId);
+    }
+  }
+
+  // Workspace persistence (v1)
+  async listWorkspaces() {
+    const rows = await this._all('SELECT id, name, createdAt FROM workspaces ORDER BY createdAt ASC');
+    return rows;
+  }
+
+  async createWorkspace({ id, name, createdAt }) {
+    await this._run('INSERT INTO workspaces (id, name, createdAt) VALUES (?, ?, ?)', [id, name, createdAt]);
+  }
+
+  async updateWorkspaceName(id, name) {
+    await this._run('UPDATE workspaces SET name = ? WHERE id = ?', [name, id]);
+  }
+
+  async deleteWorkspace(id) {
+    await this._run('DELETE FROM workspaces WHERE id = ?', [id]);
+    await this._run('DELETE FROM connection_workspaces WHERE workspace_id = ?', [id]);
+    await this._run('DELETE FROM workspace_members WHERE workspace_id = ?', [id]);
+  }
+
+  async assignConnectionToWorkspace(connectionId, workspaceId) {
+    if (!workspaceId) {
+      await this._run('DELETE FROM connection_workspaces WHERE connection_id = ?', [connectionId]);
+      return;
+    }
+    await this._run(`INSERT INTO connection_workspaces (connection_id, workspace_id) VALUES (?, ?)
+                     ON CONFLICT(connection_id) DO UPDATE SET workspace_id=excluded.workspace_id`, [connectionId, workspaceId]);
+  }
+
+  // Workspace membership (RBAC v1)
+  async listWorkspaceMembers(workspaceId) {
+    return await this._all('SELECT workspace_id as workspaceId, user_id as userId, role FROM workspace_members WHERE workspace_id = ?', [workspaceId]);
+  }
+  async addWorkspaceMember(workspaceId, userId, role) {
+    await this._run(`INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)
+                     ON CONFLICT(workspace_id, user_id) DO UPDATE SET role=excluded.role`, [workspaceId, userId, role]);
+  }
+  async removeWorkspaceMember(workspaceId, userId) {
+    await this._run('DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?', [workspaceId, userId]);
+  }
+  async getWorkspaceRole(userId, workspaceId) {
+    const rows = await this._all('SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?', [workspaceId, userId]);
+    return rows[0]?.role || null;
+  }
+  async listWorkspacesForUser(userId) {
+    return await this._all(`SELECT w.id, w.name, w.createdAt FROM workspaces w JOIN workspace_members m ON m.workspace_id = w.id WHERE m.user_id = ? ORDER BY w.createdAt ASC`, [userId]);
+  }
+
+  async transferWorkspaceOwner(workspaceId, newOwnerUserId) {
+    // demote existing owner(s) to admin, promote new owner
+    await this._run(`UPDATE workspace_members SET role='admin' WHERE workspace_id = ? AND role = 'owner'`, [workspaceId]);
+    await this._run(`INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, 'owner')
+                     ON CONFLICT(workspace_id, user_id) DO UPDATE SET role='owner'`, [workspaceId, newOwnerUserId]);
   }
 
   // Auth persistence

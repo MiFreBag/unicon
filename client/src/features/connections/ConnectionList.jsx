@@ -1,9 +1,11 @@
 // client/src/features/connections/ConnectionList.jsx
 import React, { useEffect, useState } from 'react';
-import { listConnections, createConnection, deleteConnection, connectConnection, disconnectConnection, updateConnection, op } from '../../lib/api';
+import { listConnections, createConnection, deleteConnection, connectConnection, disconnectConnection, updateConnection, op, listWorkspaces } from '../../lib/api';
 import { Plus, Trash2, Wifi, WifiOff, RefreshCw, ChevronDown, ChevronRight, Pencil, X } from 'lucide-react';
 import Spinner from '../../ui/Spinner.jsx';
 import Modal from '../../ui/Modal.jsx';
+import { EXAMPLE_PRESETS } from '../examples/presets.js';
+import { getLibrary, saveTemplate, serverAdd, serverList } from '../examples/library.js';
 
 export default function ConnectionList({ openTab }) {
   const [connections, setConnections] = useState([]);
@@ -20,6 +22,16 @@ export default function ConnectionList({ openTab }) {
   const [detailsFor, setDetailsFor] = useState(null); // { id, log }
   const [quickTesting, setQuickTesting] = useState(false);
   const [editConn, setEditConn] = useState(null);
+  const [wsList, setWsList] = useState([]);
+  useEffect(() => { listWorkspaces().then(d=> setWsList(d.workspaces||[])).catch(()=>{}); }, []);
+  const moveToWorkspace = async (id, workspaceId) => {
+    try {
+      await updateConnection(id, { workspaceId: workspaceId || null });
+      setConnections(prev => prev.map(c => c.id === id ? { ...c, workspaceId: workspaceId || null } : c));
+    } catch (e) {
+      alert('Move failed: ' + (e.message || 'error'));
+    }
+  };
 
   const TROUBLESHOOT = {
     REST_DNS: { title: 'Hostname not found', tips: [
@@ -318,8 +330,8 @@ export default function ConnectionList({ openTab }) {
     retryTimers.current.clear();
   }, []);
 
-  const kindMap = { rest:'rest', ws:'ws', grpc:'grpc', cpd:'cpd', sql:'sql', 'opc-ua':'opcua', opcua:'opcua', ssh:'ssh', k8s:'k8s', ftp:'ftp' };
-  const labelMap = { rest:'REST', ws:'WebSocket', grpc:'gRPC', cpd:'CPD', sql:'SQL', opcua:'OPC UA', 'opc-ua':'OPC UA', ssh:'SSH', k8s:'Kubernetes', ftp:'FTP' };
+  const kindMap = { rest:'rest', ws:'ws', grpc:'grpc', cpd:'cpd', sql:'sql', 'opc-ua':'opcua', opcua:'opcua', ssh:'ssh', k8s:'k8s', ftp:'ftp', sftp:'sftp' };
+  const labelMap = { rest:'REST', ws:'WebSocket', grpc:'gRPC', cpd:'CPD', sql:'SQL', opcua:'OPC UA', 'opc-ua':'OPC UA', ssh:'SSH', k8s:'Kubernetes', ftp:'FTP', sftp:'SFTP' };
 
   const targetsFor = (conn) => {
     const primary = kindMap[conn.type] || 'rest';
@@ -450,6 +462,13 @@ export default function ConnectionList({ openTab }) {
                       <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" title="Edit" onClick={() => { setEditConn(c); setShowDialog(true); }}>
                         <Pencil size={14} />
                       </button>
+                      <span className="inline-flex items-center gap-1 mr-2">
+                        <label className="text-xs text-gray-500">Workspace:</label>
+                        <select className="border rounded px-1 py-0.5 text-xs" value={c.workspaceId || ''} onChange={(e)=> moveToWorkspace(c.id, e.target.value)}>
+                          <option value="">(none)</option>
+                          {wsList.map(w => (<option key={w.id} value={w.id}>{w.name}</option>))}
+                        </select>
+                      </span>
                       <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" onClick={() => onToggle(c)} disabled={isConnecting}>
                         {status === 'connected' ? (<><WifiOff size={14} /> Disconnect</>) : (<><Wifi size={14} /> {isConnecting ? 'Connecting…' : 'Connect'}</>)}
                       </button>
@@ -561,6 +580,10 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
   const [name, setName] = useState(initial?.name || 'My REST');
   const [type, setType] = useState(initial?.type || 'rest');
   const [baseUrl, setBaseUrl] = useState(initial?.config?.baseUrl || 'https://jsonplaceholder.typicode.com');
+  // Workspace selector
+  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaceId, setWorkspaceId] = useState(() => { try { return initial?.workspaceId || localStorage.getItem('unicon_current_workspace_v1') || ''; } catch { return initial?.workspaceId || ''; } });
+  useEffect(() => { listWorkspaces().then(d=> setWorkspaces(d.workspaces||[])).catch(()=>{}); }, []);
   // SSH fields
   const [sshHost, setSshHost] = useState('');
   const [sshPort, setSshPort] = useState(22);
@@ -611,9 +634,15 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
         return;
       }
       const path = m[3] || '';
-      if ((opcUser || opcPwd) && (opcSecurityMode === 'None' || opcSecurityPolicy === 'None')) {
-        alert('Username/password requires Security Mode Sign or SignAndEncrypt with a non-None Security Policy.');
+      // Enforce valid combinations
+      if (opcSecurityPolicy === 'None' && opcSecurityMode !== 'None') {
+        alert('Security Mode must be None when Security Policy is None.');
         return;
+      }
+      // If credentials are provided with an insecure channel, warn but allow (some servers permit this).
+      if ((opcUser || opcPwd) && (opcSecurityMode === 'None' || opcSecurityPolicy === 'None')) {
+        const cont = confirm('Warning: using username/password without a secure channel will send credentials unencrypted. Continue anyway?');
+        if (!cont) return;
       }
       config = {
         endpointUrl: `opc.tcp://${m[1]}:${m[2]}${path}`,
@@ -640,19 +669,55 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
         secure: !!ftpSecure,
         passive: !!ftpPassive
       };
+    } else if (type === 'sftp') {
+      config = {
+        host: sshHost,
+        port: Number(sshPort || 22),
+        username: sshUser,
+        ...(sshAuthType === 'password' ? { password: sshPassword } : { privateKey: sshPrivateKey, passphrase: sshPassphrase })
+      };
     }
-    onSave({ name: name.trim(), type, config }, initial?.id);
+    onSave({ name: name.trim(), type, config, workspaceId: workspaceId || null }, initial?.id);
+  };
+
+  const [lib, setLib] = useState(getLibrary());
+  React.useEffect(()=>{ (async ()=>{ try { const remote = await serverList(); setLib(remote); localStorage.setItem('unicon_templates_v1', JSON.stringify(remote)); } catch {} })(); }, []);
+
+  const applyTemplate = (tmpl) => {
+    if (!tmpl) return;
+    const t = (tmpl.type||'').toLowerCase();
+    if (t === 'rest') { setType('rest'); setBaseUrl(tmpl.config?.baseUrl || ''); }
+    else if (t === 'sql') { setType('sql'); const d=tmpl.config?.driver||'sqlite'; setSqlDriver(d); setSqlFilename(tmpl.config?.filename||':memory:'); setSqlUrl(tmpl.config?.url||tmpl.config?.connectionString||''); }
+    else if (t === 'opc-ua' || t === 'opcua') { setType('opc-ua'); setOpcEndpointUrl(tmpl.config?.endpointUrl || ''); setOpcSecurityPolicy(tmpl.config?.securityPolicy || 'None'); setOpcSecurityMode(tmpl.config?.securityMode || 'None'); setOpcUser(tmpl.config?.username || ''); setOpcPwd(''); }
+    else if (t === 'websocket' || t === 'ws') { setType('ws'); /* no ws dialog fields here */ }
+  };
+
+  const saveCurrentAsTemplate = async () => {
+    let tmpl = null;
+    if (type === 'rest') tmpl = { name, type: 'rest', config: { baseUrl } };
+    else if (type === 'sql') {
+      tmpl = sqlDriver === 'sqlite' ? { name, type: 'sql', config: { driver: 'sqlite', filename: sqlFilename } } : { name, type: 'sql', config: { driver: sqlDriver, url: sqlUrl } };
+    } else if (type === 'opc-ua' || type === 'opcua') {
+      tmpl = { name, type: 'opc-ua', config: { endpointUrl: opcEndpointUrl, securityPolicy: opcSecurityPolicy, securityMode: opcSecurityMode, ...(opcUser?{username:opcUser}:{}) } };
+    } else if (type === 'ws' || type === 'websocket') {
+      tmpl = { name, type: 'websocket', config: {} };
+    }
+    if (tmpl) {
+      try { await serverAdd(tmpl); const remote = await serverList(); setLib(remote); localStorage.setItem('unicon_templates_v1', JSON.stringify(remote)); }
+      catch { saveTemplate(tmpl); setLib(getLibrary()); }
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
       <div className="bg-white rounded-md shadow-lg w-full max-w-md">
         <div className="p-4 border-b font-semibold">{initial ? 'Edit Connection' : 'New Connection'}</div>
-        <div className="p-4 space-y-3">
-          <div>
-            <label className="block text-sm mb-1">Name</label>
-            <input className="w-full border rounded px-3 py-2" value={name} onChange={e => setName(e.target.value)} />
-          </div>
+        <div className="p-4">
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm mb-1">Name</label>
+              <input className="w-full border rounded px-3 py-2" value={name} onChange={e => setName(e.target.value)} />
+            </div>
           <div>
             <label className="block text-sm mb-1">Type</label>
             <select className="w-full border rounded px-3 py-2" value={type} onChange={e => setType(e.target.value)}>
@@ -664,193 +729,262 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
               <option value="sql">SQL</option>
               <option value="ssh">SSH</option>
               <option value="ftp">FTP</option>
+              <option value="sftp">SFTP</option>
               <option value="k8s">Kubernetes</option>
             </select>
           </div>
-          {type === 'rest' && (
-            <div>
-              <label className="block text-sm mb-1">Base URL</label>
-              <input className="w-full border rounded px-3 py-2" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
-            </div>
-          )}
-
-          {type === 'sql' && (
-            <div className="space-y-3">
+          <div>
+            <label className="block text-sm mb-1">Workspace</label>
+            <select className="w-full border rounded px-3 py-2" value={workspaceId} onChange={e=> setWorkspaceId(e.target.value)}>
+              <option value="">— None —</option>
+              {workspaces.map(w => (<option key={w.id} value={w.id}>{w.name}</option>))}
+            </select>
+          </div>
+            {type === 'rest' && (
               <div>
-                <label className="block text-sm mb-1">Driver</label>
-                <select className="w-full border rounded px-3 py-2" value={sqlDriver} onChange={e=> setSqlDriver(e.target.value)}>
-                  <option value="sqlite">SQLite</option>
-                  <option value="pg">PostgreSQL / TimescaleDB</option>
-                  <option value="mysql">MySQL / MariaDB</option>
-                </select>
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm mb-1">Base URL</label>
+                  <div className="text-xs text-gray-600">
+                    Suggestion:
+                    <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const idx=Number(e.target.value); if (!isNaN(idx)) setBaseUrl(EXAMPLE_PRESETS.rest[idx].baseUrl); }}>
+                      <option>Pick…</option>
+                      {EXAMPLE_PRESETS.rest.map((ex, i)=> (<option key={ex.name} value={i}>{ex.name}</option>))}
+                    </select>
+                  </div>
+                </div>
+                <input className="w-full border rounded px-3 py-2" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
+                <div className="mt-2 text-xs text-gray-600">
+                  From My Library:
+                  <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const t=lib.find(x=>x.id===e.target.value); applyTemplate(t); }}>
+                    <option value="">Pick…</option>
+                    {lib.filter(t=> (t.type||'').toLowerCase()==='rest').map(t=>(<option key={t.id} value={t.id}>{t.name}</option>))}
+                  </select>
+                  <button className="ml-2 px-2 py-1 border rounded" onClick={saveCurrentAsTemplate}>Save as template</button>
+                </div>
               </div>
-              {sqlDriver === 'sqlite' && (
-                <div>
-                  <label className="block text-sm mb-1">SQLite filename</label>
-                  <input className="w-full border rounded px-3 py-2" value={sqlFilename} onChange={e=> setSqlFilename(e.target.value)} placeholder=":memory:" />
-                </div>
-              )}
-              {sqlDriver !== 'sqlite' && (
-                <div>
-                  <label className="block text-sm mb-1">Connection string (URL)</label>
-                  <input className="w-full border rounded px-3 py-2" value={sqlUrl} onChange={e=> setSqlUrl(e.target.value)} placeholder={sqlDriver==='pg' ? 'postgres://user:pass@host:5432/db' : 'mysql://user:pass@host:3306/db'} />
-                  <div className="text-xs text-gray-500 mt-1">TimescaleDB uses the PostgreSQL URL format.</div>
-                </div>
-              )}
-            </div>
-          )}
+            )}
 
-          {(type === 'opc-ua' || type === 'opcua') && (
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm mb-1">Endpoint URL</label>
+            {type === 'sql' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm mb-1">Driver</label>
+                  <div className="text-xs text-gray-600">
+                    Suggestion:
+                    <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{
+                      const idx = Number(e.target.value); if (isNaN(idx)) return; const ex = EXAMPLE_PRESETS.sql[idx];
+                      setSqlDriver(ex.config.driver || 'sqlite'); setSqlFilename(ex.config.filename||':memory:'); setSqlUrl(ex.config.url||'');
+                    }}>
+                      <option>Pick…</option>
+                      {EXAMPLE_PRESETS.sql.map((ex,i)=>(<option key={ex.name} value={i}>{ex.name}</option>))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <select className="w-full border rounded px-3 py-2" value={sqlDriver} onChange={e=> setSqlDriver(e.target.value)}>
+                    <option value="sqlite">SQLite</option>
+                    <option value="pg">PostgreSQL / TimescaleDB</option>
+                    <option value="mysql">MySQL / MariaDB</option>
+                  </select>
+                </div>
+                {sqlDriver === 'sqlite' && (
+                  <div>
+                    <label className="block text-sm mb-1">SQLite filename</label>
+                    <input className="w-full border rounded px-3 py-2" value={sqlFilename} onChange={e=> setSqlFilename(e.target.value)} placeholder=":memory:" />
+                  </div>
+                )}
+                {sqlDriver !== 'sqlite' && (
+                  <div>
+                    <label className="block text-sm mb-1">Connection string (URL)</label>
+                    <input className="w-full border rounded px-3 py-2" value={sqlUrl} onChange={e=> setSqlUrl(e.target.value)} placeholder={sqlDriver==='pg' ? 'postgres://user:pass@host:5432/db' : 'mysql://user:pass@host:3306/db'} />
+                    <div className="text-xs text-gray-500 mt-1">TimescaleDB uses the PostgreSQL URL format.</div>
+                  </div>
+                )}
+                <div className="text-xs text-gray-600">
+                  From My Library:
+                  <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const t=lib.find(x=>x.id===e.target.value); applyTemplate(t); }}>
+                    <option value="">Pick…</option>
+                    {lib.filter(t=> (t.type||'').toLowerCase()==='sql').map(t=>(<option key={t.id} value={t.id}>{t.name}</option>))}
+                  </select>
+                  <button className="ml-2 px-2 py-1 border rounded" onClick={saveCurrentAsTemplate}>Save as template</button>
+                </div>
+              </div>
+            )}
+
+            {(type === 'opc-ua' || type === 'opcua') && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm mb-1">Endpoint URL</label>
+                  <div className="text-xs text-gray-600">
+                    Suggestion:
+                    <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const idx=Number(e.target.value); if (isNaN(idx)) return; const ex = EXAMPLE_PRESETS.opcua[idx]; setOpcEndpointUrl(ex.endpointUrl); setOpcSecurityPolicy(ex.securityPolicy||'None'); setOpcSecurityMode(ex.securityMode||'None'); }}>
+                      <option>Pick…</option>
+                      {EXAMPLE_PRESETS.opcua.map((ex,i)=>(<option key={ex.name} value={i}>{ex.name}</option>))}
+                    </select>
+                  </div>
+                </div>
                 <input className="w-full border rounded px-3 py-2" value={opcEndpointUrl} onChange={e => setOpcEndpointUrl(e.target.value)} placeholder="opc.tcp://host:4840 or opc.tcp://host:4840/Path" />
-                <div className="text-xs text-gray-500 mt-1">Format: opc.tcp://host:port[/path], e.g., opc.tcp://localhost:4840 or opc.tcp://server:4840/OPCUA/Sim</div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-sm mb-1">Security Policy</label>
-                  <select className="w-full border rounded px-3 py-2" value={opcSecurityPolicy} onChange={e => setOpcSecurityPolicy(e.target.value)}>
-                    <option>None</option>
-                    <option>Basic128Rsa15</option>
-                    <option>Basic256</option>
-                    <option>Basic256Sha256</option>
-                    <option>Aes128_Sha256_RsaOaep</option>
-                    <option>Aes256_Sha256_RsaPss</option>
+                <div className="text-xs text-gray-600">
+                  From My Library:
+                  <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const t=lib.find(x=>x.id===e.target.value); applyTemplate(t); }}>
+                    <option value="">Pick…</option>
+                    {lib.filter(t=> ['opc-ua','opcua'].includes((t.type||'').toLowerCase())).map(t=>(<option key={t.id} value={t.id}>{t.name}</option>))}
                   </select>
+                  <button className="ml-2 px-2 py-1 border rounded" onClick={saveCurrentAsTemplate}>Save as template</button>
                 </div>
+                <div className="text-xs text-amber-600">Public OPC UA demo endpoints can be unstable. If connection fails, try again or use a local server.</div>
                 <div>
-                  <label className="block text-sm mb-1">Security Mode</label>
-                  <select className="w-full border rounded px-3 py-2" value={opcSecurityMode} onChange={e => setOpcSecurityMode(e.target.value)}>
-                    <option>None</option>
-                    <option>Sign</option>
-                    <option>SignAndEncrypt</option>
-                  </select>
+                  <label className="block text-sm mb-1">Endpoint URL</label>
+                  <input className="w-full border rounded px-3 py-2" value={opcEndpointUrl} onChange={e => setOpcEndpointUrl(e.target.value)} placeholder="opc.tcp://host:4840 or opc.tcp://host:4840/Path" />
+                  <div className="text-xs text-gray-500 mt-1">Format: opc.tcp://host:port[/path], e.g., opc.tcp://localhost:4840 or opc.tcp://server:4840/OPCUA/Sim</div>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-sm mb-1">Username (optional)</label>
-                  <input className="w-full border rounded px-3 py-2" value={opcUser} onChange={e => setOpcUser(e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-sm mb-1">Password (optional)</label>
-                  <input type="password" className="w-full border rounded px-3 py-2" value={opcPwd} onChange={e => setOpcPwd(e.target.value)} />
-                </div>
-              </div>
-            </div>
-          )}
-          {type === 'ssh' && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-sm mb-1">Host</label>
-                  <input className="w-full border rounded px-3 py-2" value={sshHost} onChange={e => setSshHost(e.target.value)} placeholder="server.example.com" />
-                </div>
-                <div>
-                  <label className="block text-sm mb-1">Port</label>
-                  <input type="number" className="w-full border rounded px-3 py-2" value={sshPort} onChange={e => setSshPort(e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-sm mb-1">Username</label>
-                  <input className="w-full border rounded px-3 py-2" value={sshUser} onChange={e => setSshUser(e.target.value)} placeholder="root" />
-                </div>
-                <div>
-                  <label className="block text-sm mb-1">Auth Type</label>
-                  <select className="w-full border rounded px-3 py-2" value={sshAuthType} onChange={e => setSshAuthType(e.target.value)}>
-                    <option value="password">Password</option>
-                    <option value="privateKey">Private Key</option>
-                  </select>
-                </div>
-              </div>
-              {sshAuthType === 'password' ? (
-                <div>
-                  <label className="block text-sm mb-1">Password</label>
-                  <input type="password" className="w-full border rounded px-3 py-2" value={sshPassword} onChange={e => setSshPassword(e.target.value)} />
-                </div>
-              ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm mb-1">Private Key (PEM)</label>
-                    <textarea className="w-full border rounded px-3 py-2 font-mono text-xs" rows={5} value={sshPrivateKey} onChange={e => setSshPrivateKey(e.target.value)} placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" />
+                    <label className="block text-sm mb-1">Security Policy</label>
+                    <select className="w-full border rounded px-3 py-2" value={opcSecurityPolicy} onChange={e => setOpcSecurityPolicy(e.target.value)}>
+                      <option>None</option>
+                      <option>Basic128Rsa15</option>
+                      <option>Basic256</option>
+                      <option>Basic256Sha256</option>
+                      <option>Aes128_Sha256_RsaOaep</option>
+                      <option>Aes256_Sha256_RsaPss</option>
+                    </select>
                   </div>
                   <div>
-                    <label className="block text-sm mb-1">Passphrase (optional)</label>
-                    <input type="password" className="w-full border rounded px-3 py-2" value={sshPassphrase} onChange={e => setSshPassphrase(e.target.value)} />
+                    <label className="block text-sm mb-1">Security Mode</label>
+                    <select className="w-full border rounded px-3 py-2" value={opcSecurityMode} onChange={e => setOpcSecurityMode(e.target.value)}>
+                      <option>None</option>
+                      <option>Sign</option>
+                      <option>SignAndEncrypt</option>
+                    </select>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-          {type === 'k8s' && (
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm mb-1">Kubeconfig Source</label>
-                <select className="w-full border rounded px-3 py-2" value={kubeSource} onChange={e => setKubeSource(e.target.value)}>
-                  <option value="default">Default</option>
-                  <option value="path">Path</option>
-                  <option value="inline">Inline</option>
-                </select>
-              </div>
-              {kubeSource === 'path' && (
-                <div>
-                  <label className="block text-sm mb-1">Kubeconfig Path</label>
-                  <input className="w-full border rounded px-3 py-2" value={kubePath} onChange={e => setKubePath(e.target.value)} placeholder="C:/Users/me/.kube/config" />
-                </div>
-              )}
-              {kubeSource === 'inline' && (
-                <div>
-                  <label className="block text-sm mb-1">Kubeconfig (YAML)</label>
-                  <textarea className="w-full border rounded px-3 py-2 font-mono text-xs" rows={6} value={kubeInline} onChange={e => setKubeInline(e.target.value)} />
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-sm mb-1">Context (optional)</label>
-                  <input className="w-full border rounded px-3 py-2" value={kubeContext} onChange={e => setKubeContext(e.target.value)} placeholder="my-context" />
-                </div>
-                <div>
-                  <label className="block text-sm mb-1">Default Namespace</label>
-                  <input className="w-full border rounded px-3 py-2" value={kubeNamespace} onChange={e => setKubeNamespace(e.target.value)} placeholder="default" />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-sm mb-1">Username (optional)</label>
+                    <input className="w-full border rounded px-3 py-2" value={opcUser} onChange={e => setOpcUser(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Password (optional)</label>
+                    <input type="password" className="w-full border rounded px-3 py-2" value={opcPwd} onChange={e => setOpcPwd(e.target.value)} />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+            {(type === 'ssh' || type === 'sftp') && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-sm mb-1">Host</label>
+                    <input className="w-full border rounded px-3 py-2" value={sshHost} onChange={e => setSshHost(e.target.value)} placeholder="server.example.com" />
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Port</label>
+                    <input type="number" className="w-full border rounded px-3 py-2" value={sshPort} onChange={e => setSshPort(e.target.value)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-sm mb-1">Username</label>
+                    <input className="w-full border rounded px-3 py-2" value={sshUser} onChange={e => setSshUser(e.target.value)} placeholder="root" />
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Auth Type</label>
+                    <select className="w-full border rounded px-3 py-2" value={sshAuthType} onChange={e => setSshAuthType(e.target.value)}>
+                      <option value="password">Password</option>
+                      <option value="privateKey">Private Key</option>
+                    </select>
+                  </div>
+                </div>
+                {sshAuthType === 'password' ? (
+                  <div>
+                    <label className="block text-sm mb-1">Password</label>
+                    <input type="password" className="w-full border rounded px-3 py-2" value={sshPassword} onChange={e => setSshPassword(e.target.value)} />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-sm mb-1">Private Key (PEM)</label>
+                      <textarea className="w-full border rounded px-3 py-2 font-mono text-xs" rows={5} value={sshPrivateKey} onChange={e => setSshPrivateKey(e.target.value)} placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" />
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">Passphrase (optional)</label>
+                      <input type="password" className="w-full border rounded px-3 py-2" value={sshPassphrase} onChange={e => setSshPassphrase(e.target.value)} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {type === 'k8s' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm mb-1">Kubeconfig Source</label>
+                  <select className="w-full border rounded px-3 py-2" value={kubeSource} onChange={e => setKubeSource(e.target.value)}>
+                    <option value="default">Default</option>
+                    <option value="path">Path</option>
+                    <option value="inline">Inline</option>
+                  </select>
+                </div>
+                {kubeSource === 'path' && (
+                  <div>
+                    <label className="block text-sm mb-1">Kubeconfig Path</label>
+                    <input className="w-full border rounded px-3 py-2" value={kubePath} onChange={e => setKubePath(e.target.value)} placeholder="C:/Users/me/.kube/config" />
+                  </div>
+                )}
+                {kubeSource === 'inline' && (
+                  <div>
+                    <label className="block text-sm mb-1">Kubeconfig (YAML)</label>
+                    <textarea className="w-full border rounded px-3 py-2 font-mono text-xs" rows={6} value={kubeInline} onChange={e => setKubeInline(e.target.value)} />
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-sm mb-1">Context (optional)</label>
+                    <input className="w-full border rounded px-3 py-2" value={kubeContext} onChange={e => setKubeContext(e.target.value)} placeholder="my-context" />
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Default Namespace</label>
+                    <input className="w-full border rounded px-3 py-2" value={kubeNamespace} onChange={e => setKubeNamespace(e.target.value)} placeholder="default" />
+                  </div>
+                </div>
+              </div>
+            )}
 
-          {type === 'ftp' && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-sm mb-1">Host</label>
-                  <input className="w-full border rounded px-3 py-2" value={ftpHost} onChange={e=>setFtpHost(e.target.value)} placeholder="ftp.example.com" />
+            {type === 'ftp' && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-sm mb-1">Host</label>
+                    <input className="w-full border rounded px-3 py-2" value={ftpHost} onChange={e=>setFtpHost(e.target.value)} placeholder="ftp.example.com" />
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Port</label>
+                    <input type="number" className="w-full border rounded px-3 py-2" value={ftpPort} onChange={e=>setFtpPort(e.target.value)} />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm mb-1">Port</label>
-                  <input type="number" className="w-full border rounded px-3 py-2" value={ftpPort} onChange={e=>setFtpPort(e.target.value)} />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-sm mb-1">Username</label>
+                    <input className="w-full border rounded px-3 py-2" value={ftpUser} onChange={e=>setFtpUser(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Password</label>
+                    <input type="password" className="w-full border rounded px-3 py-2" value={ftpPwd} onChange={e=>setFtpPwd(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ftpSecure} onChange={e=>setFtpSecure(e.target.checked)} /> FTPS (secure)</label>
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ftpPassive} onChange={e=>setFtpPassive(e.target.checked)} /> Passive mode</label>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-sm mb-1">Username</label>
-                  <input className="w-full border rounded px-3 py-2" value={ftpUser} onChange={e=>setFtpUser(e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-sm mb-1">Password</label>
-                  <input type="password" className="w-full border rounded px-3 py-2" value={ftpPwd} onChange={e=>setFtpPwd(e.target.value)} />
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ftpSecure} onChange={e=>setFtpSecure(e.target.checked)} /> FTPS (secure)</label>
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ftpPassive} onChange={e=>setFtpPassive(e.target.checked)} /> Passive mode</label>
-              </div>
+            )}
+          </div>
+          <div className="mt-4 border-t pt-4 flex justify-between gap-2">
+            <div>
+              <button className="px-3 py-1.5 border rounded" onClick={saveCurrentAsTemplate} title="Save current form as reusable template">Save as template</button>
             </div>
-          )}
-        </div>
-        <div className="p-4 border-t flex justify-end gap-2">
-          <button className="px-3 py-1.5 border rounded" onClick={onClose}>Cancel</button>
-          <button className="px-3 py-1.5 border rounded bg-blue-600 text-white" onClick={onSubmit}>Create</button>
+            <button className="px-3 py-1.5 border rounded" onClick={onClose}>Cancel</button>
+            <button className="px-3 py-1.5 border rounded bg-blue-600 text-white" onClick={onSubmit}>{initial? 'Save' : 'Create'}</button>
+          </div>
         </div>
       </div>
     </div>

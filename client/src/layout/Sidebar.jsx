@@ -20,6 +20,7 @@ export default function Sidebar({ onOpenWorkspace, activeTabKind }) {
       <div className="px-2 text-xs uppercase text-gray-500 tracking-wide">General</div>
       <div className="space-y-1">
         <Item iconName="list" label="Connections" onClick={() => onOpenWorkspace('connections')} />
+        <Item iconName="globe" label="Examples" onClick={() => onOpenWorkspace('examples')} />
       </div>
       <div className="pt-4 border-t border-gray-200" />
       <div className="px-2 text-xs uppercase text-gray-500 tracking-wide">Workspaces</div>
@@ -45,6 +46,7 @@ export default function Sidebar({ onOpenWorkspace, activeTabKind }) {
       <div className="px-2 text-xs uppercase text-gray-500 tracking-wide">System</div>
       <div className="space-y-1">
         <Item iconName="gear" label="Settings" onClick={() => {}} />
+        <Item iconName="list" label="Templates" onClick={() => onOpenWorkspace('templates')} />
       </div>
     </aside>
   );

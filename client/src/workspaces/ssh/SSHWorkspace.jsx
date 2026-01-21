@@ -17,7 +17,9 @@ function makeWSUrl() {
   return envUrl || sameOrigin;
 }
 
-export default function SSHWorkspace({ connectionId: initialConnectionId }) {
+import { createConnection } from '../../lib/api';
+
+export default function SSHWorkspace({ connectionId: initialConnectionId, openTab }) {
   const [connections, setConnections] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [status, setStatus] = useState('disconnected');
@@ -58,38 +60,52 @@ export default function SSHWorkspace({ connectionId: initialConnectionId }) {
     return () => { try { ws.close(); } catch (_) {} };
   }, [sessionId]);
 
-  // Create terminal instance
-  useEffect(() => {
-    if (!termRef.current) return;
-    const xterm = new XTerm({
-      fontFamily: 'JetBrains Mono, Fira Code, Consolas, monospace',
-      fontSize: 13,
-      convertEol: true,
-      cursorBlink: true,
-      theme: { background: '#ffffff', foreground: '#111827' }
-    });
-    const fit = new FitAddon();
-    xterm.loadAddon(fit);
-    xterm.open(termRef.current);
-    // Defer fit until next frame to ensure renderer is initialized
-    requestAnimationFrame(() => { try { fit.fit(); } catch {} });
-    xtermRef.current = xterm;
-    fitRef.current = fit;
+// Create terminal instance (defer until container is attached)
+useEffect(() => {
+  let disposed = false;
+  function init() {
+    if (disposed) return;
+    const el = termRef.current;
+    if (!el || !el.isConnected) { requestAnimationFrame(init); return; }
+    try {
+      const xterm = new XTerm({
+        rendererType: 'canvas',
+        fontFamily: 'JetBrains Mono, Fira Code, Consolas, monospace',
+        fontSize: 13,
+        convertEol: true,
+        cursorBlink: true,
+        theme: { background: '#ffffff', foreground: '#111827' }
+      });
+      const fit = new FitAddon();
+      xterm.loadAddon(fit);
+      xterm.open(el);
+      // Double-rAF to allow renderer to settle
+      requestAnimationFrame(() => requestAnimationFrame(() => { try { fit.fit(); } catch {} }));
+      xtermRef.current = xterm;
+      fitRef.current = fit;
 
-    const onResize = () => { requestAnimationFrame(() => { try { fit.fit(); } catch {} }); };
-    window.addEventListener('resize', onResize);
+      const onResize = () => { requestAnimationFrame(() => { try { fit.fit(); } catch {} }); };
+      window.addEventListener('resize', onResize);
 
-    // Send typed data to server when a session is active
-    xterm.onData(async (data) => {
-      if (!sessionId) return;
-      try { await op(selectedId, 'shellInput', { sessionId, data }); } catch {}
-    });
+      // Send typed data to server when a session is active
+      xterm.onData(async (data) => {
+        if (!sessionId) return;
+        try { await op(selectedId, 'shellInput', { sessionId, data }); } catch {}
+      });
 
-    return () => {
-      window.removeEventListener('resize', onResize);
-      try { xterm.dispose(); } catch {}
-    };
-  }, []);
+      // Cleanup
+      return () => {
+        window.removeEventListener('resize', onResize);
+        try { xterm.dispose(); } catch {}
+      };
+    } catch (e) {
+      // Retry once if renderer not ready yet
+      setTimeout(init, 16);
+    }
+  }
+  const cleanup = init();
+  return () => { disposed = true; if (typeof cleanup === 'function') cleanup(); };
+}, []);
 
   async function onConnect() {
     if (!selectedId) return;
@@ -181,9 +197,25 @@ export default function SSHWorkspace({ connectionId: initialConnectionId }) {
     await listSftp();
   }
 
+  async function quickCreate(kind) {
+    if (!kind) return;
+    if (kind === 'ssh_local') {
+      const res = await createConnection({ name: 'SSH localhost', type: 'ssh', config: { host: 'localhost', port: 22, username: 'user' } });
+      const conn = res.connection; setSelectedId(conn.id);
+      if (typeof openTab === 'function') openTab('ssh', { connectionId: conn.id, connection: conn, title: `SSH • ${conn.name}` });
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-end gap-3">
+        <div className="text-sm text-gray-700">
+          Quick pick:
+          <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const v=e.target.value; e.target.value=''; quickCreate(v); }}>
+            <option>Pick…</option>
+            <option value="ssh_local">SSH localhost (22)</option>
+          </select>
+        </div>
         <ConnectionHeader connections={connections} selectedId={selectedId} status={status} />
         <div>
           <label className="block text-sm text-gray-600">SSH Connection</label>

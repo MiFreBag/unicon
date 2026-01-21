@@ -12,6 +12,7 @@ import GrpcWorkspace from '../workspaces/grpc/GrpcWorkspace.jsx';
 import CpdWorkspace from '../workspaces/CpdWorkspace.jsx';
 import SqlWorkspace from '../workspaces/sql/SqlWorkspace.jsx';
 import FtpWorkspace from '../workspaces/ftp/FtpWorkspace.jsx';
+import SftpWorkspace from '../workspaces/sftp/SftpWorkspace.jsx';
 import SSHWorkspace from '../workspaces/ssh/SSHWorkspace.jsx';
 import K8sWorkspace from '../workspaces/k8s/K8sWorkspace.jsx';
 import { Globe, Server, Zap, MessageSquare, Layers, Database, List } from 'lucide-react';
@@ -26,6 +27,7 @@ export default function AppShell() {
   // Registry of workspaces available to open in tabs
   const registry = useMemo(() => ({
     connections: { title: 'Connections', icon: List, component: ConnectionList },
+    examples: { title: 'Examples', icon: Globe, component: React.lazy(() => import('../features/examples/ConnectionsExamples.jsx')) },
     rest: { title: 'REST Client', icon: Globe, component: RestWorkspace },
     opcua: { title: 'OPC UA', icon: Server, component: OpcUaWorkspace },
     ws: { title: 'WebSocket', icon: Zap, component: WebSocketWorkspace },
@@ -35,8 +37,10 @@ export default function AppShell() {
     cpd: { title: 'CPD', icon: Layers, component: CpdWorkspace },
     sql: { title: 'SQL', icon: Database, component: SqlWorkspace },
     ftp: { title: 'FTP', icon: Database, component: FtpWorkspace },
+    sftp: { title: 'SFTP', icon: Database, component: SftpWorkspace },
     'helpers-network': { title: 'Network Tools', icon: Server, component: React.lazy(() => import('../workspaces/helpers/NetworkTools.jsx')) },
     'helpers-format': { title: 'JSON/YAML Tools', icon: Layers, component: React.lazy(() => import('../workspaces/helpers/FormatTools.jsx')) },
+    templates: { title: 'Templates', icon: List, component: React.lazy(() => import('../features/templates/TemplatesAdmin.jsx')) },
   }), []);
 
   // Tabs with persistence

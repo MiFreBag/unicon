@@ -18,8 +18,10 @@ import Button from '../ui/Button.jsx';
 import Input from '../ui/Input.jsx';
 import Select from '../ui/Select.jsx';
 import ConnectionBadge from '../ui/ConnectionBadge.jsx';
+import { EXAMPLE_PRESETS } from '../features/examples/presets.js';
+import { createConnection } from '../lib/api';
 
-const RestWorkspace = ({ connection }) => {
+const RestWorkspace = ({ connection, openTab }) => {
   const [activeTab, setActiveTab] = useState('request');
   const [request, setRequest] = useState({
     method: 'GET',
@@ -42,6 +44,10 @@ const RestWorkspace = ({ connection }) => {
 
   // Post actions
   const [postActions, setPostActions] = useState([]); // [{ type: 'download' } | { type: 'followup', method, endpoint }]
+
+  // Preset endpoints state
+  const [selectedPreset, setSelectedPreset] = useState(null); // which preset is currently active
+  const [showPresetEndpoints, setShowPresetEndpoints] = useState(true);
 
   const API_BASE = '/unicon/api';
 
@@ -291,6 +297,76 @@ const RestWorkspace = ({ connection }) => {
             </button>
           ))}
         </nav>
+      </div>
+
+      {/* Quick pick examples */}
+      <div className="mb-3 text-sm text-gray-700 flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span>Quick pick:</span>
+          <select className="border rounded px-2 py-1" onChange={async (e)=>{
+            const idx = Number(e.target.value); if (isNaN(idx)) return;
+            const ex = EXAMPLE_PRESETS.rest[idx];
+            setSelectedPreset(ex); // Store the selected preset
+            const res = await createConnection({ name: `${ex.name} (REST)`, type: 'rest', config: { baseUrl: ex.baseUrl } });
+            const conn = res.connection;
+            if (typeof openTab === 'function') openTab('rest', { connectionId: conn.id, connection: conn, title: `REST • ${ex.name}` });
+          }}>
+            <option>Pick…</option>
+            {EXAMPLE_PRESETS.rest.map((ex,i)=>(<option key={ex.name} value={i}>{ex.name}</option>))}
+          </select>
+          {selectedPreset?.endpoints?.length > 0 && (
+            <button
+              className="text-xs text-blue-600 hover:underline"
+              onClick={() => setShowPresetEndpoints(!showPresetEndpoints)}
+            >
+              {showPresetEndpoints ? 'Hide' : 'Show'} endpoints ({selectedPreset.endpoints.length})
+            </button>
+          )}
+        </div>
+        {/* Preset endpoints list - click to auto-fill request */}
+        {selectedPreset?.endpoints?.length > 0 && showPresetEndpoints && (
+          <div className="border rounded bg-white max-h-48 overflow-auto">
+            <div className="px-2 py-1 bg-gray-100 text-xs font-medium border-b sticky top-0">
+              {selectedPreset.name} – Click an endpoint to load it
+            </div>
+            {selectedPreset.endpoints.map((ep, i) => (
+              <button
+                key={i}
+                className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-sm flex items-center gap-2 border-b border-gray-100 last:border-b-0"
+                title={ep.summary || ''}
+                onClick={() => {
+                  // Auto-fill the request with preset endpoint data
+                  setRequest(prev => ({
+                    ...prev,
+                    method: ep.method,
+                    endpoint: ep.path,
+                    body: ep.body ? JSON.stringify(ep.body, null, 2) : ''
+                  }));
+                  // Auto-fill headers if provided
+                  if (ep.headers && Object.keys(ep.headers).length > 0) {
+                    const headerEntries = Object.entries(ep.headers).map(([key, value]) => ({ key, value }));
+                    setCustomHeaders(headerEntries.length > 0 ? headerEntries : [{ key: '', value: '' }]);
+                  } else {
+                    setCustomHeaders([{ key: '', value: '' }]);
+                  }
+                  setActiveTab('request');
+                }}
+              >
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium ${
+                  ep.method === 'GET' ? 'bg-green-100 text-green-700' :
+                  ep.method === 'POST' ? 'bg-blue-100 text-blue-700' :
+                  ep.method === 'PUT' ? 'bg-yellow-100 text-yellow-700' :
+                  ep.method === 'PATCH' ? 'bg-orange-100 text-orange-700' :
+                  ep.method === 'DELETE' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-200 text-gray-700'
+                }`}>{ep.method}</span>
+                <span className="font-mono text-[12px] text-gray-800">{ep.path}</span>
+                {ep.summary && <span className="text-xs text-gray-500 truncate">— {ep.summary}</span>}
+                {ep.body && <span className="text-[10px] text-blue-500 ml-auto">+ body</span>}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Request Tab */}

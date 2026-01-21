@@ -21,7 +21,9 @@ import {
 import Button from '../ui/Button.jsx';
 import ConnectionBadge from '../ui/ConnectionBadge.jsx';
 
-const CpdWorkspace = ({ connection }) => {
+import { createConnection } from '../lib/api';
+
+const CpdWorkspace = ({ connection, openTab }) => {
   const [activeTab, setActiveTab] = useState('topics');
   const [topics, setTopics] = useState([]);
   const [selectedTopic, setSelectedTopic] = useState('');
@@ -412,6 +414,26 @@ const CpdWorkspace = ({ connection }) => {
             </button>
           ))}
         </nav>
+      </div>
+
+      {/* Quick pick */}
+      <div className="mb-3 text-sm text-gray-700 flex items-center gap-2">
+        <span>Quick pick:</span>
+        <select className="border rounded px-2 py-1" onChange={async (e)=>{
+          const val = e.target.value; if (!val) return;
+          const [protocol, target] = val.split('|');
+          const payload = protocol==='grpc'
+            ? { name: 'CPD gRPC (local)', type: 'cpd', config: { protocol:'grpc', address: target } }
+            : { name: 'CPD WS (local)', type: 'cpd', config: { protocol:'websocket', url: target } };
+          const res = await createConnection(payload);
+          const conn = res.connection;
+          if (typeof openTab === 'function') openTab('cpd', { connectionId: conn.id, connection: conn, title: `CPD • ${payload.name}` });
+          e.target.value='';
+        }}>
+          <option value="">Pick…</option>
+          <option value="grpc|localhost:8082">Local gRPC adapter (localhost:8082)</option>
+          <option value="ws|ws://localhost:8003">Local WebSocket adapter (ws://localhost:8003)</option>
+        </select>
       </div>
 
       {/* Topics Tab */}

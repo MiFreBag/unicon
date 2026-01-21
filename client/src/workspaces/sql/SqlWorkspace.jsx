@@ -6,6 +6,8 @@ import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
 import Spinner from '../../ui/Spinner.jsx';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
+import { EXAMPLE_PRESETS } from '../../features/examples/presets.js';
+import { createConnection } from '../../lib/api';
 
 export default function SqlWorkspace({ connectionId: initialConnectionId }) {
   const [connections, setConnections] = useState([]);
@@ -121,6 +123,18 @@ export default function SqlWorkspace({ connectionId: initialConnectionId }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-end gap-3">
+        <div className="text-sm text-gray-700">
+          Quick pick:
+          <select className="ml-2 border rounded px-2 py-1" onChange={async (e)=>{
+            const idx = Number(e.target.value); if (isNaN(idx)) return;
+            const ex = EXAMPLE_PRESETS.sql[idx];
+            const res = await createConnection({ name: ex.name, type: 'sql', config: ex.config });
+            const conn = res.connection; setSelectedId(conn.id); setDriver(conn.config?.driver||'sqlite');
+          }}>
+            <option>Pick…</option>
+            {EXAMPLE_PRESETS.sql.map((ex,i)=>(<option key={ex.name} value={i}>{ex.name}</option>))}
+          </select>
+        </div>
         <ConnectionHeader connections={connections} selectedId={selectedId} status={status} />
         <div>
           <label className="block text-sm text-gray-600">SQL Connection</label>

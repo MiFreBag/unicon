@@ -134,21 +134,21 @@ function HexBin() {
         <label className="block text-sm mb-1">Text</label>
         <textarea className="w-full h-16 border rounded p-2 font-mono text-xs" value={text} onChange={e=>setText(e.target.value)} />
         <div className="mt-1 space-x-2">
-          <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ setHex(Buffer.from(text,'utf8').toString('hex')); setBin([...Buffer.from(text,'utf8')].map(b=>b.toString(2).padStart(8,'0')).join(' ')); }}>To hex/bin</button>
+          <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ try{ const enc = new TextEncoder(); const bytes = enc.encode(text); const toHex = (u8)=>Array.from(u8).map(b=>b.toString(16).padStart(2,'0')).join(''); const toBin = (u8)=>Array.from(u8).map(b=>b.toString(2).padStart(8,'0')).join(' '); setHex(toHex(bytes)); setBin(toBin(bytes)); }catch(e){ /* ignore */ } }}>To hex/bin</button>
         </div>
       </div>
       <div>
         <label className="block text-sm mb-1">Hex</label>
         <textarea className="w-full h-16 border rounded p-2 font-mono text-xs" value={hex} onChange={e=>setHex(e.target.value)} />
         <div className="mt-1 space-x-2">
-          <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ try{ setText(Buffer.from(hex.replace(/\s+/g,''),'hex').toString('utf8')); }catch(e){ /* ignore */ } }}>Hex → text</button>
+          <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ try{ const s = hex.replace(/\s+/g,'').toLowerCase(); if (s.length%2!==0) throw new Error('odd hex length'); const u8 = new Uint8Array(s.length/2); for(let i=0;i<s.length;i+=2){ u8[i/2] = parseInt(s.slice(i,i+2),16); } const dec = new TextDecoder(); setText(dec.decode(u8)); }catch(e){ /* ignore */ } }}>Hex → text</button>
         </div>
       </div>
       <div>
         <label className="block text-sm mb-1">Binary (8-bit groups)</label>
         <textarea className="w-full h-16 border rounded p-2 font-mono text-xs" value={bin} onChange={e=>setBin(e.target.value)} />
         <div className="mt-1 space-x-2">
-          <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ try{ const bytes = bin.trim().split(/\s+/).map(b=>parseInt(b,2)); setText(Buffer.from(bytes).toString('utf8')); }catch(e){ /* ignore */ } }}>Bin → text</button>
+          <button className="px-2 py-1 border rounded text-xs" onClick={()=>{ try{ const bytes = bin.trim().split(/\s+/).map(b=>parseInt(b,2)); const u8 = new Uint8Array(bytes); const dec = new TextDecoder(); setText(dec.decode(u8)); }catch(e){ /* ignore */ } }}>Bin → text</button>
         </div>
       </div>
     </div>
