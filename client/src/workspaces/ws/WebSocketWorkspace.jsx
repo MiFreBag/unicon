@@ -3,8 +3,9 @@ import React, { useEffect, useState } from 'react';
 import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
+import ConnectionLog from '../../components/ConnectionLog.jsx';
 import { EXAMPLE_PRESETS } from '../../features/examples/presets.js';
-import { createConnection } from '../../lib/api';
+import { createConnection, connectConnection } from '../../lib/api';
 
 export default function WebSocketWorkspace({ connection, openTab }) {
   const [message, setMessage] = useState('');
@@ -73,7 +74,13 @@ export default function WebSocketWorkspace({ connection, openTab }) {
             const ex = EXAMPLE_PRESETS.ws[idx];
             const res = await createConnection({ name: `${ex.name} (WS)`, type: 'websocket', config: { url: ex.url } });
             const conn = res.connection;
-            if (typeof openTab === 'function') openTab('ws', { connectionId: conn.id, connection: conn, title: `WebSocket • ${ex.name}` });
+            try {
+              await connectConnection(conn.id);
+              const connected = { ...conn, status: 'connected' };
+              if (typeof openTab === 'function') openTab('ws', { connectionId: conn.id, connection: connected, title: `WebSocket • ${ex.name}` });
+            } catch (_e) {
+              if (typeof openTab === 'function') openTab('ws', { connectionId: conn.id, connection: conn, title: `WebSocket • ${ex.name}` });
+            }
           }}>
             <option>Pick…</option>
             {EXAMPLE_PRESETS.ws.map((ex,i)=>(<option key={ex.name} value={i}>{ex.name}</option>))}
@@ -96,6 +103,7 @@ export default function WebSocketWorkspace({ connection, openTab }) {
         }>Disconnect</Button>
       </div>
 
+      <ConnectionLog connectionId={connection?.id} className="mb-3" />
       <div className="flex-1 border border-gray-200 rounded-lg p-4">
         <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
           {messages.map((msg, i) => (

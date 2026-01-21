@@ -18,10 +18,11 @@ import Button from '../ui/Button.jsx';
 import Input from '../ui/Input.jsx';
 import Select from '../ui/Select.jsx';
 import ConnectionBadge from '../ui/ConnectionBadge.jsx';
+import ConnectionLog from '../components/ConnectionLog.jsx';
 import { EXAMPLE_PRESETS } from '../features/examples/presets.js';
-import { createConnection } from '../lib/api';
+import { createConnection, connectConnection } from '../lib/api';
 
-const RestWorkspace = ({ connection, openTab }) => {
+const RestWorkspace = ({ connection, openTab, autoRequest }) => {
   const [activeTab, setActiveTab] = useState('request');
   const [request, setRequest] = useState({
     method: 'GET',
@@ -274,10 +275,26 @@ const RestWorkspace = ({ connection, openTab }) => {
     return 'text-gray-600 bg-gray-100';
   };
 
+  // Auto-send support when opened from quick-pick with tryPath
+  const didAutoRef = React.useRef(false);
+  React.useEffect(() => {
+    if (didAutoRef.current) return;
+    if (!autoRequest || !connection || connection.status !== 'connected') return;
+    didAutoRef.current = true;
+    setRequest(prev => ({ ...prev, method: autoRequest.method || 'GET', endpoint: autoRequest.endpoint || '/' }));
+    // defer a tick to ensure state is applied
+    setTimeout(() => { sendRequest(); }, 50);
+  }, [autoRequest, connection?.status]);
+
   return (
     <div className="h-full flex flex-col">
       {/* Connection in use */}
-      {connection ? (<div className="mb-3"><ConnectionBadge connection={connection} /></div>) : null}
+      {connection ? (
+        <div className="mb-3 space-y-2">
+          <ConnectionBadge connection={connection} />
+          <ConnectionLog connectionId={connection.id} />
+        </div>
+      ) : null}
       {/* Tab Navigation */}
       <div className="border-b border-gray-200 mb-6">
         <nav className="flex space-x-8">
@@ -309,7 +326,13 @@ const RestWorkspace = ({ connection, openTab }) => {
             setSelectedPreset(ex); // Store the selected preset
             const res = await createConnection({ name: `${ex.name} (REST)`, type: 'rest', config: { baseUrl: ex.baseUrl } });
             const conn = res.connection;
-            if (typeof openTab === 'function') openTab('rest', { connectionId: conn.id, connection: conn, title: `REST • ${ex.name}` });
+            try {
+              await connectConnection(conn.id);
+              const connected = { ...conn, status: 'connected' };
+              if (typeof openTab === 'function') openTab('rest', { connectionId: conn.id, connection: connected, title: `REST • ${ex.name}` , autoRequest: { method: 'GET', endpoint: ex.tryPath || '/' }});
+            } catch (_e) {
+              if (typeof openTab === 'function') openTab('rest', { connectionId: conn.id, connection: conn, title: `REST • ${ex.name}` });
+            }
           }}>
             <option>Pick…</option>
             {EXAMPLE_PRESETS.rest.map((ex,i)=>(<option key={ex.name} value={i}>{ex.name}</option>))}

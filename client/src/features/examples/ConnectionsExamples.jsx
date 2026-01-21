@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { createConnection } from '../../lib/api';
+import { createConnection, connectConnection } from '../../lib/api';
 import Spinner from '../../ui/Spinner.jsx';
 import { EXAMPLE_PRESETS } from './presets.js';
 import { getLibrary, saveTemplate, deleteTemplate, exportLibrary, importLibrary, serverList, serverAdd, serverDelete, serverImport } from './library.js';
@@ -81,7 +81,18 @@ export default function ConnectionsExamples({ openTab }) {
     try {
       const res = await createConnection({ name: `${ex.name} (REST)`, type: 'rest', config: { baseUrl: ex.baseUrl } });
       const conn = res.connection;
-      openTab && openTab('rest', { connectionId: conn.id, connection: conn, title: `REST • ${ex.name}` });
+      try {
+        await connectConnection(conn.id);
+        const connected = { ...conn, status: 'connected' };
+        openTab && openTab('rest', {
+          connectionId: conn.id,
+          connection: connected,
+          title: `REST • ${ex.name}`,
+          autoRequest: { method: 'GET', endpoint: ex.tryPath || '/' }
+        });
+      } catch (_e) {
+        openTab && openTab('rest', { connectionId: conn.id, connection: conn, title: `REST • ${ex.name}` });
+      }
     } finally { setBusy(false); }
   };
 

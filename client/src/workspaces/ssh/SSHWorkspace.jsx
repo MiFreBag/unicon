@@ -1,6 +1,6 @@
 // client/src/workspaces/ssh/SSHWorkspace.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { listConnections, connectConnection, disconnectConnection, op } from '../../lib/api';
+import { listConnections, connectConnection, disconnectConnection, op, createConnection } from '../../lib/api';
 import { Play, Square, Terminal, RefreshCw } from 'lucide-react';
 import { Terminal as XTerm } from 'xterm';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
@@ -24,6 +24,9 @@ export default function SSHWorkspace({ connectionId: initialConnectionId, openTa
   const [selectedId, setSelectedId] = useState('');
   const [status, setStatus] = useState('disconnected');
   const [sessionId, setSessionId] = useState(null);
+  const [logs, setLogs] = useState([]); // [{ts, level, message, code?, hint?}]
+  // Quick connect form
+  const [qc, setQc] = useState({ host: 'localhost', port: 22, username: 'root', authType: 'password', password: '', privateKey: '', passphrase: '' });
   const [loading, setLoading] = useState(false);
   const termRef = useRef(null);
   const xtermRef = useRef(null);
@@ -49,7 +52,16 @@ export default function SSHWorkspace({ connectionId: initialConnectionId, openTa
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
-        if (msg?.type === 'ssh' && msg?.data?.event === 'shellData') {
+        if (msg?.type === 'log' && msg?.data?.connectionId) {
+          const { connectionId, message, type, code, hint } = msg.data || {};
+          if (connectionId === selectedId) {
+            setLogs(prev => {
+              const arr = prev.slice(-99);
+              arr.push({ ts: new Date().toISOString(), level: type === 'error' ? 'error' : (type === 'warn' ? 'warn' : 'info'), message, code, hint });
+              return arr;
+            });
+          }
+        } else if (msg?.type === 'ssh' && msg?.data?.event === 'shellData') {
           if (msg.data.sessionId === sessionId) {
             xtermRef.current?.write(msg.data.data);
           }
@@ -107,22 +119,24 @@ useEffect(() => {
   return () => { disposed = true; if (typeof cleanup === 'function') cleanup(); };
 }, []);
 
-  async function onConnect() {
-    if (!selectedId) return;
+  async function onConnect(idParam) {
+    const targetId = idParam || selectedId;
+    if (!targetId) return;
     setLoading(true);
     try {
-      await connectConnection(selectedId);
+      await connectConnection(targetId);
       setStatus('connected');
       // open shell
       const cols = xtermRef.current?.cols || 80;
       const rows = xtermRef.current?.rows || 24;
-      const r = await op(selectedId, 'shellOpen', { cols, rows });
+      const r = await op(targetId, 'shellOpen', { cols, rows });
       const sid = r?.data?.sessionId;
       setSessionId(sid);
       // greet
       xtermRef.current?.write('\r\n');
     } catch (e) {
       xtermRef.current?.writeln(`\r\nError: ${e.message}`);
+      setLogs(prev => [...prev, { ts: new Date().toISOString(), level: 'error', message: e.message }].slice(-100));
     } finally { setLoading(false); }
   }
 
@@ -132,6 +146,7 @@ useEffect(() => {
     try {
       if (sessionId) { await op(selectedId, 'shellClose', { sessionId }); setSessionId(null); }
       await disconnectConnection(selectedId);
+      setLogs(prev => [...prev, { ts: new Date().toISOString(), level: 'info', message: 'Disconnected' }].slice(-100));
       setStatus('disconnected');
     } finally { setLoading(false); }
   }
@@ -206,8 +221,61 @@ useEffect(() => {
     }
   }
 
+  function exportLogs() {
+    const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'ssh-logs.json'; a.click(); URL.revokeObjectURL(url);
+  }
+
+  async function quickConnect() {
+    try {
+      const payload = {
+        name: `SSH quick: ${qc.username || 'user'}@${qc.host}:${qc.port || 22}`,
+        type: 'ssh',
+        config: {
+          host: qc.host,
+          port: Number(qc.port || 22),
+          username: qc.username,
+          ...(qc.authType === 'password' ? { password: qc.password } : { privateKey: qc.privateKey, passphrase: qc.passphrase })
+        }
+      };
+      const res = await createConnection(payload);
+      const id = res.connection.id;
+      setSelectedId(id);
+      setLogs([]);
+      await onConnect(id);
+    } catch (e) {
+      alert(e.message || 'Quick connect failed');
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
+      {/* Quick Connect */}
+      <div className="border rounded p-3 bg-gray-50">
+        <div className="text-sm font-medium mb-2">Quick Connect (SSH)</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <input className="border rounded px-2 py-1" placeholder="host" value={qc.host} onChange={e=>setQc(p=>({...p, host:e.target.value}))} />
+          <input className="border rounded px-2 py-1" placeholder="port" type="number" value={qc.port} onChange={e=>setQc(p=>({...p, port:e.target.value}))} />
+          <input className="border rounded px-2 py-1" placeholder="username" value={qc.username} onChange={e=>setQc(p=>({...p, username:e.target.value}))} />
+          <select className="border rounded px-2 py-1" value={qc.authType} onChange={e=>setQc(p=>({...p, authType:e.target.value}))}>
+            <option value="password">Password</option>
+            <option value="privateKey">Private Key</option>
+          </select>
+          {qc.authType==='password' ? (
+            <input className="border rounded px-2 py-1" placeholder="password" type="password" value={qc.password} onChange={e=>setQc(p=>({...p, password:e.target.value}))} />
+          ) : (
+            <>
+              <textarea className="col-span-2 border rounded px-2 py-1 font-mono text-xs" rows={3} placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" value={qc.privateKey} onChange={e=>setQc(p=>({...p, privateKey:e.target.value}))} />
+              <input className="border rounded px-2 py-1" placeholder="passphrase (optional)" type="password" value={qc.passphrase} onChange={e=>setQc(p=>({...p, passphrase:e.target.value}))} />
+            </>
+          )}
+        </div>
+        <div className="mt-2">
+          <button className="px-3 py-1.5 border rounded bg-blue-600 text-white" onClick={quickConnect}>Quick Connect</button>
+        </div>
+      </div>
+
       <div className="flex items-end gap-3">
         <div className="text-sm text-gray-700">
           Quick pick:
@@ -235,6 +303,30 @@ useEffect(() => {
 
       <div className="border rounded h-[360px] overflow-hidden">
         <div ref={termRef} className="h-full" aria-label="SSH Terminal" />
+      </div>
+
+      {/* Event Log */}
+      <div className="border rounded p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm font-medium">Log</div>
+          <div className="flex items-center gap-2">
+            <button className="px-2 py-1 border rounded text-sm" onClick={()=>setLogs([])}>Clear</button>
+            <button className="px-2 py-1 border rounded text-sm" onClick={exportLogs}>Export</button>
+          </div>
+        </div>
+        <div className="max-h-48 overflow-auto text-xs font-mono leading-5">
+          {logs.length === 0 ? (
+            <div className="text-gray-500">No log entries yet.</div>
+          ) : (
+            logs.slice().reverse().map((l,i)=> (
+              <div key={i} className={l.level==='error'?'text-red-700':(l.level==='warn'?'text-amber-700':'text-gray-800')}>
+                <span className="opacity-60 mr-2">{new Date(l.ts).toLocaleTimeString()}</span>
+                {l.message}
+                {l.code || l.hint ? (<span className="opacity-80"> {l.code ? `[${l.code}]` : ''}{l.hint ? ` – ${l.hint}` : ''}</span>) : null}
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
