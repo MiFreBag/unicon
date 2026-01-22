@@ -52,6 +52,7 @@
     "ssh2": "^1.15.0",
     "unicon-workspace": "file:..",
     "uuid": "^9.0.1",
+    "busboy": "^1.6.0",
     "ws": "^8.14.2"
   },
   "devDependencies": {

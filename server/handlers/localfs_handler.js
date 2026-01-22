@@ -86,6 +86,12 @@ class LocalFSHandler {
     return { success: true, data: { base64: buf.toString('base64'), size: buf.length } };
   }
 
+  getReadStream(p) {
+    this._ensure();
+    const abs = this._safe(p);
+    return fs.createReadStream(abs);
+  }
+
   async upload(p, base64, overwrite = true) {
     this._ensure();
     if (!base64) throw new Error('base64 required');
@@ -93,6 +99,20 @@ class LocalFSHandler {
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     const flag = overwrite ? 'w' : 'wx';
     await fsp.writeFile(abs, Buffer.from(base64, 'base64'), { flag });
+    return { success: true };
+  }
+
+  async uploadFromStream(readable, p, overwrite = true) {
+    this._ensure();
+    const abs = this._safe(p);
+    await fsp.mkdir(path.dirname(abs), { recursive: true });
+    const flag = overwrite ? 'w' : 'wx';
+    await new Promise((resolve, reject) => {
+      const ws = fs.createWriteStream(abs, { flags: flag });
+      ws.on('error', reject);
+      ws.on('finish', resolve);
+      readable.pipe(ws);
+    });
     return { success: true };
   }
 }

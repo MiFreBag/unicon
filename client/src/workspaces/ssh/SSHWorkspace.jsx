@@ -7,6 +7,7 @@ import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
 import Select from '../../ui/Select.jsx';
 import Checkbox from '../../ui/Checkbox.jsx';
+import Modal from '../../ui/Modal.jsx';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 import ConnectionLog from '../../components/ConnectionLog.jsx';
 import { FitAddon } from 'xterm-addon-fit';
@@ -30,6 +31,7 @@ export default function SSHWorkspace({ connectionId: initialConnectionId, openTa
   // Quick connect form
   const [qc, setQc] = useState({ host: 'localhost', port: 22, username: 'root', authType: 'password', password: '', privateKey: '', passphrase: '' });
   const [handover, setHandover] = useState({ includeHostPort: true, includeUser: true, includeHeader: true, includePassword: false, includePrivateKey: false });
+  const [confirmSecrets, setConfirmSecrets] = useState(false);
   const [loading, setLoading] = useState(false);
   const termRef = useRef(null);
   const xtermRef = useRef(null);
@@ -229,9 +231,9 @@ useEffect(() => {
     await listSftp();
   }
 
-  function openAdvanced() {
+  function buildHandoverUrl(includeSecrets=false) {
     const sel = (connections || []).find(c => c.id === selectedId);
-    if (!sel) return;
+    if (!sel) return '';
     const base = '/unicon/proxy/webssh2/';
     const qs = new URLSearchParams();
     if (handover.includeHostPort) {
@@ -247,8 +249,27 @@ useEffect(() => {
     if (handover.includeHeader) {
       qs.set('header', `SSH • ${sel.name || sel.config?.host || ''}`);
     }
-    // Secrets intentionally not sent by default. If you want, enable and map to WebSSH2 config later.
-    const url = `${base}?${qs.toString()}`;
+    if (includeSecrets) {
+      if (handover.includePassword && sel.config?.password) {
+        qs.set('pw', sel.config.password);
+      }
+      if (handover.includePrivateKey && sel.config?.privateKey) {
+        try { qs.set('pk', btoa(sel.config.privateKey)); } catch { qs.set('pk', sel.config.privateKey); }
+        if (sel.config?.passphrase) qs.set('pp', sel.config.passphrase);
+      }
+    }
+    return `${base}?${qs.toString()}`;
+  }
+
+  function openAdvanced() {
+    const sel = (connections || []).find(c => c.id === selectedId);
+    if (!sel) return;
+    const wantsSecrets = (handover.includePassword && sel.config?.password) || (handover.includePrivateKey && sel.config?.privateKey);
+    if (wantsSecrets) {
+      setConfirmSecrets(true);
+      return;
+    }
+    const url = buildHandoverUrl(false);
     try { window.open(url, '_blank', 'noopener'); } catch {}
   }
 
@@ -432,12 +453,53 @@ useEffect(() => {
           <Checkbox id="ho-host" label="Include Host/Port" checked={handover.includeHostPort} onChange={e=>setHandover(p=>({...p, includeHostPort: e.target.checked}))} />
           <Checkbox id="ho-user" label="Include Username" checked={handover.includeUser} onChange={e=>setHandover(p=>({...p, includeUser: e.target.checked}))} />
           <Checkbox id="ho-head" label="Include Header Title" checked={handover.includeHeader} onChange={e=>setHandover(p=>({...p, includeHeader: e.target.checked}))} />
+          <Checkbox id="ho-pw" label="Include Password (unsafe)" checked={handover.includePassword} onChange={e=>setHandover(p=>({...p, includePassword: e.target.checked}))} />
+          <Checkbox id="ho-key" label="Include Private Key (unsafe)" checked={handover.includePrivateKey} onChange={e=>setHandover(p=>({...p, includePrivateKey: e.target.checked}))} />
         </div>
-        <div className="mt-2 text-xs text-gray-600">Secrets (password/private key) are not sent by default.</div>
+        <div className="mt-2 text-xs text-gray-600">Secrets are sent via query params only if toggled; this may be insecure depending on your setup.</div>
+        <div className="mt-2">
+          <div className="text-xs text-gray-500 mb-1">Preview URL (secrets omitted):</div>
+          <pre className="text-[11px] leading-4 bg-gray-50 border rounded p-2 overflow-x-auto">{buildHandoverUrl(false)}</pre>
+        </div>
         <div className="mt-2">
           <Button variant="secondary" onClick={() => openAdvanced()} disabled={!selectedId} leftEl={<Terminal size={14}/>}>Open Advanced Terminal</Button>
         </div>
       </div>
+      {/* Confirm secrets modal */}
+      <Modal open={!!confirmSecrets} onClose={()=>setConfirmSecrets(false)} title="Send credentials to Advanced Terminal?" footer={
+        <>
+          <Button variant="secondary" onClick={()=>setConfirmSecrets(false)}>Cancel</Button>
+          <Button onClick={async()=>{
+            try {
+              const sel = (connections || []).find(c => c.id === selectedId);
+              if (!sel) return;
+              const body = {
+                connectionId: sel.id,
+                includeHostPort: !!handover.includeHostPort,
+                includeUser: !!handover.includeUser,
+                includeHeader: !!handover.includeHeader,
+                includePassword: !!handover.includePassword,
+                includePrivateKey: !!handover.includePrivateKey,
+              };
+              const resp = await fetch('/unicon/api/ssh/handover-token', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) }).then(r=>r.json());
+              setConfirmSecrets(false);
+              if (resp?.success && resp.launchUrl) {
+                window.open(resp.launchUrl, '_blank', 'noopener');
+              } else {
+                alert(resp?.error || 'Token creation failed');
+              }
+            } catch (e) {
+              setConfirmSecrets(false);
+              alert(e.message || 'Token handover failed');
+            }
+          }}>Proceed</Button>
+        </>
+      }>
+        <div className="text-sm text-gray-700">
+          You enabled password/private key handover. The app will request a short‑lived token from the server and redirect to the Advanced Terminal.
+          Although safer than embedding secrets directly, the final URL may still include them depending on WebSSH2.
+        </div>
+      </Modal>
     </div>
   );
 }

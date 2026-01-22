@@ -66,6 +66,22 @@ class FtpHandler {
     return Buffer.concat(chunks)
   }
 
+  // Streaming helpers
+  getReadStream(remotePath) {
+    if (!this.connected) throw new Error('FTP not connected');
+    const { PassThrough } = require('stream');
+    const pt = new PassThrough();
+    // Start async download into the pass-through
+    this.client.downloadTo(pt, remotePath).catch(err => pt.destroy(err));
+    return pt; // readable
+  }
+
+  async uploadFromStream(readable, remotePath) {
+    if (!this.connected) throw new Error('FTP not connected');
+    await this.client.uploadFrom(readable, remotePath);
+    return { success: true };
+  }
+
   async remove(remotePath) {
     if (!this.connected) throw new Error('FTP not connected')
     try {

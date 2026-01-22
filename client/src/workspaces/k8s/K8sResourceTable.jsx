@@ -1,8 +1,9 @@
 // client/src/workspaces/k8s/K8sResourceTable.jsx
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { 
-  ArrowUp, ArrowDown, Search, RefreshCw, Trash2, FileText, 
-  Terminal, Scale, RotateCcw, ChevronUp, ChevronDown, Share2, Settings2
+  Search, RefreshCw, Trash2, FileText, 
+  Terminal, Scale, RotateCcw, ChevronUp, ChevronDown, Share2, Settings2,
+  Eye, Play, MoreHorizontal, Copy, Download, Edit3
 } from 'lucide-react';
 
 // Column definitions for each resource type
@@ -173,13 +174,33 @@ export default function K8sResourceTable({
   onSelect,
   onAction,
   onRefresh,
+  theme = {},
   className = '',
 }) {
   const [filter, setFilter] = useState('');
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
   const tableRef = useRef(null);
   const rowRefs = useRef({});
+
+  // Theme-aware colors (fallback for backwards compatibility)
+  const isDark = theme.bg?.includes('gray-900') || !theme.bg;
+  const colors = {
+    bg: isDark ? 'bg-gray-900' : 'bg-white',
+    headerBg: isDark ? 'bg-gray-800' : 'bg-gray-100',
+    toolbarBg: isDark ? 'bg-gray-800' : 'bg-gray-50',
+    border: isDark ? 'border-gray-700' : 'border-gray-200',
+    text: isDark ? 'text-gray-200' : 'text-gray-900',
+    textMuted: isDark ? 'text-gray-400' : 'text-gray-600',
+    textFaint: isDark ? 'text-gray-500' : 'text-gray-500',
+    hover: isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100',
+    selected: isDark ? 'bg-blue-900/50' : 'bg-blue-100',
+    input: isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900',
+    button: isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-gray-200 hover:bg-gray-300 text-gray-800',
+    buttonPrimary: 'bg-blue-600 hover:bg-blue-700 text-white',
+    buttonDanger: isDark ? 'bg-red-600/20 hover:bg-red-600/40 text-red-400' : 'bg-red-100 hover:bg-red-200 text-red-600',
+  };
 
   const columns = RESOURCE_COLUMNS[resourceType] || RESOURCE_COLUMNS.pods;
 
@@ -303,148 +324,182 @@ export default function K8sResourceTable({
 
   const selectedItem = selectedIndex >= 0 ? filteredItems[selectedIndex] : null;
 
+  // Copy resource name to clipboard
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+  };
+
   return (
     <div className={`flex flex-col h-full ${className}`} ref={tableRef} tabIndex={0}>
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-800 border-b border-gray-700">
-        <div className="relative flex-1 max-w-md">
-          <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+      {/* Main Toolbar */}
+      <div className={`flex items-center gap-3 px-3 py-2 ${colors.toolbarBg} border-b ${colors.border}`}>
+        {/* Search */}
+        <div className="relative flex-1 max-w-sm">
+          <Search size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${colors.textFaint}`} />
           <input
             id="k8s-filter-input"
             type="text"
-            placeholder="Filter... (press / to focus)"
+            placeholder="Filter resources... ( / )"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="w-full pl-7 pr-3 py-1 text-xs bg-gray-900 border border-gray-700 rounded text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            className={`w-full pl-8 pr-3 py-1.5 text-sm ${colors.input} border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
           />
         </div>
         
-        <span className="text-xs text-gray-500">
-          {filteredItems.length} / {items.length} items
-        </span>
+        {/* Resource count badge */}
+        <div className={`px-2.5 py-1 ${isDark ? 'bg-gray-700' : 'bg-gray-200'} rounded-md text-xs font-medium ${colors.text}`}>
+          {filteredItems.length} <span className={colors.textMuted}>/ {items.length}</span>
+        </div>
         
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded disabled:opacity-50"
-          title="Refresh (Ctrl+R)"
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-        </button>
+        {/* Quick Action Buttons - always visible */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className={`p-2 rounded-md ${colors.button} disabled:opacity-50 transition-colors`}
+            title="Refresh (Ctrl+R)"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
-      {/* Action bar */}
+      {/* Action Toolbar - shown when item is selected */}
       {selectedItem && (
-        <div className="flex items-center gap-1 px-2 py-1 bg-gray-750 border-b border-gray-700 text-xs">
-          <span className="text-gray-400 mr-2">Actions:</span>
-          
-          <button
-            onClick={() => onAction?.('describe', selectedItem)}
-            className="px-2 py-0.5 text-gray-300 hover:bg-gray-700 rounded flex items-center gap-1"
-            title="Describe (Enter)"
-          >
-            <FileText size={12} /> Describe
-          </button>
-          
-          {resourceType === 'pods' && (
-            <>
-              <button
-                onClick={() => onAction?.('logs', selectedItem)}
-                className="px-2 py-0.5 text-gray-300 hover:bg-gray-700 rounded flex items-center gap-1"
-                title="Logs (l)"
-              >
-                <FileText size={12} /> Logs
-              </button>
-              <button
-                onClick={() => onAction?.('shell', selectedItem)}
-                className="px-2 py-0.5 text-gray-300 hover:bg-gray-700 rounded flex items-center gap-1"
-                title="Shell (s)"
-              >
-                <Terminal size={12} /> Shell
-              </button>
-              <button
-                onClick={() => onAction?.('portForward', selectedItem)}
-                className="px-2 py-0.5 text-gray-300 hover:bg-gray-700 rounded flex items-center gap-1"
-                title="Port Forward (p)"
-              >
-                <Share2 size={12} /> Port Forward
-              </button>
-            </>
-          )}
-          
-          {['deployments', 'statefulsets', 'replicasets'].includes(resourceType) && (
-            <>
-              <button
-                onClick={() => onAction?.('scale', selectedItem)}
-                className="px-2 py-0.5 text-gray-300 hover:bg-gray-700 rounded flex items-center gap-1"
-              >
-                <Scale size={12} /> Scale
-              </button>
-              {resourceType === 'deployments' && (
-                <button
-                  onClick={() => onAction?.('restart', selectedItem)}
-                  className="px-2 py-0.5 text-gray-300 hover:bg-gray-700 rounded flex items-center gap-1"
-                >
-                  <RotateCcw size={12} /> Restart
-                </button>
-              )}
-            </>
-          )}
-          
-          {resourceType === 'nodes' && (
+        <div className={`flex items-center gap-2 px-3 py-2 ${isDark ? 'bg-gray-800/80' : 'bg-blue-50'} border-b ${colors.border}`}>
+          {/* Selected item info */}
+          <div className="flex items-center gap-2 mr-2">
+            <span className={`text-xs font-medium ${colors.textMuted}`}>Selected:</span>
+            <span className={`text-sm font-mono ${colors.text}`}>{selectedItem.name}</span>
             <button
-              onClick={() => onAction?.('nodeAction', selectedItem)}
-              className="px-2 py-0.5 text-yellow-400 hover:bg-gray-700 rounded flex items-center gap-1"
-              title="Node Actions"
+              onClick={() => copyToClipboard(selectedItem.name)}
+              className={`p-1 rounded ${colors.hover}`}
+              title="Copy name"
             >
-              <Settings2 size={12} /> Manage
+              <Copy size={12} className={colors.textMuted} />
             </button>
-          )}
+          </div>
           
+          <div className={`w-px h-5 ${colors.border}`} />
+          
+          {/* Common Actions */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onAction?.('describe', selectedItem)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md ${colors.buttonPrimary} transition-colors`}
+              title="Describe (Enter)"
+            >
+              <Eye size={14} /> View YAML
+            </button>
+            
+            {resourceType === 'pods' && (
+              <>
+                <button
+                  onClick={() => onAction?.('logs', selectedItem)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md ${colors.button} transition-colors`}
+                  title="Logs (l)"
+                >
+                  <FileText size={14} /> Logs
+                </button>
+                <button
+                  onClick={() => onAction?.('shell', selectedItem)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md ${colors.button} transition-colors`}
+                  title="Shell (s)"
+                >
+                  <Terminal size={14} /> Shell
+                </button>
+                <button
+                  onClick={() => onAction?.('portForward', selectedItem)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md ${colors.button} transition-colors`}
+                  title="Port Forward"
+                >
+                  <Share2 size={14} /> Port Forward
+                </button>
+              </>
+            )}
+            
+            {['deployments', 'statefulsets', 'replicasets'].includes(resourceType) && (
+              <>
+                <button
+                  onClick={() => onAction?.('scale', selectedItem)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md ${colors.button} transition-colors`}
+                  title="Scale replicas"
+                >
+                  <Scale size={14} /> Scale
+                </button>
+                {resourceType === 'deployments' && (
+                  <button
+                    onClick={() => onAction?.('restart', selectedItem)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md ${colors.button} transition-colors`}
+                    title="Rolling restart"
+                  >
+                    <RotateCcw size={14} /> Restart
+                  </button>
+                )}
+              </>
+            )}
+            
+            {resourceType === 'nodes' && (
+              <button
+                onClick={() => onAction?.('nodeAction', selectedItem)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md ${isDark ? 'bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400' : 'bg-yellow-100 hover:bg-yellow-200 text-yellow-700'} transition-colors`}
+                title="Node management actions"
+              >
+                <Settings2 size={14} /> Manage Node
+              </button>
+            )}
+          </div>
+          
+          {/* Spacer */}
+          <div className="flex-1" />
+          
+          {/* Danger zone */}
           <button
             onClick={() => onAction?.('delete', selectedItem)}
-            className="px-2 py-0.5 text-red-400 hover:bg-gray-700 rounded flex items-center gap-1 ml-auto"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md ${colors.buttonDanger} transition-colors`}
             title="Delete (Ctrl+D)"
           >
-            <Trash2 size={12} /> Delete
+            <Trash2 size={14} /> Delete
           </button>
         </div>
       )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-gray-800">
+        <table className="w-full text-sm">
+          <thead className={`sticky top-0 ${colors.headerBg} z-10`}>
             <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}
                   style={{ width: col.width }}
-                  className="px-2 py-1.5 text-left text-gray-400 font-medium cursor-pointer hover:bg-gray-700 select-none"
+                  className={`px-3 py-2 text-left ${colors.textMuted} font-semibold text-xs uppercase tracking-wide cursor-pointer ${colors.hover} select-none transition-colors`}
                   onClick={() => handleSort(col.key)}
                 >
                   <div className="flex items-center gap-1">
                     {col.label}
                     {sortKey === col.key && (
-                      sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                      <span className="text-blue-500">
+                        {sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </span>
                     )}
                   </div>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody className={colors.text}>
             {loading && items.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-2 py-8 text-center text-gray-500">
-                  <RefreshCw size={16} className="inline animate-spin mr-2" />
-                  Loading...
+                <td colSpan={columns.length} className={`px-3 py-12 text-center ${colors.textMuted}`}>
+                  <RefreshCw size={20} className="inline animate-spin mr-2" />
+                  Loading resources...
                 </td>
               </tr>
             ) : filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-2 py-8 text-center text-gray-500">
-                  {filter ? 'No matching resources' : 'No resources found'}
+                <td colSpan={columns.length} className={`px-3 py-12 text-center ${colors.textMuted}`}>
+                  {filter ? 'No matching resources found' : 'No resources in this namespace'}
                 </td>
               </tr>
             ) : (
@@ -455,20 +510,20 @@ export default function K8sResourceTable({
                   onClick={() => onSelect?.(index)}
                   onDoubleClick={() => onAction?.('describe', item)}
                   className={`
-                    cursor-pointer border-b border-gray-800
+                    cursor-pointer border-b ${colors.border} transition-colors
                     ${index === selectedIndex 
-                      ? 'bg-blue-900/50 text-white' 
-                      : 'hover:bg-gray-800/50 text-gray-300'}
+                      ? `${colors.selected} font-medium` 
+                      : colors.hover}
                   `}
                 >
                   {columns.map((col) => (
                     <td 
                       key={col.key} 
-                      className={`px-2 py-1 truncate ${
+                      className={`px-3 py-2 truncate ${
                         col.key === 'status' || col.key === 'phase' 
                           ? getStatusColor(item[col.key]) 
                           : ''
-                      }`}
+                      } ${col.key === 'name' ? 'font-mono' : ''}`}
                       title={String(item[col.key] ?? '')}
                     >
                       {item[col.key] ?? '-'}
@@ -481,18 +536,78 @@ export default function K8sResourceTable({
         </table>
       </div>
 
-      {/* Status bar */}
-      <div className="flex items-center justify-between px-2 py-1 bg-gray-800 border-t border-gray-700 text-xs text-gray-500">
-        <span>
-          {selectedIndex >= 0 ? `${selectedIndex + 1}/${filteredItems.length}` : '-'}
-        </span>
-        <span className="flex items-center gap-3">
-          <span>↑↓/jk: Navigate</span>
-          <span>Enter: Describe</span>
-          {resourceType === 'pods' && <span>l: Logs</span>}
-          {resourceType === 'pods' && <span>s: Shell</span>}
-          <span>/: Filter</span>
-        </span>
+      {/* Enhanced Status Bar */}
+      <div className={`flex items-center justify-between px-3 py-2 ${colors.headerBg} border-t ${colors.border}`}>
+        {/* Position indicator */}
+        <div className={`flex items-center gap-2 text-sm ${colors.textMuted}`}>
+          <span className={`px-2 py-0.5 rounded ${isDark ? 'bg-gray-700' : 'bg-gray-200'} font-mono text-xs`}>
+            {selectedIndex >= 0 ? `${selectedIndex + 1}/${filteredItems.length}` : '—'}
+          </span>
+        </div>
+        
+        {/* Keyboard shortcuts as clickable buttons */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => selectedIndex > 0 && onSelect?.(selectedIndex - 1)}
+            className={`px-2 py-1 text-xs rounded ${colors.button} flex items-center gap-1`}
+            title="Previous (↑ or k)"
+          >
+            <span className="font-mono">↑</span>
+          </button>
+          <button
+            onClick={() => selectedIndex < filteredItems.length - 1 && onSelect?.(selectedIndex + 1)}
+            className={`px-2 py-1 text-xs rounded ${colors.button} flex items-center gap-1`}
+            title="Next (↓ or j)"
+          >
+            <span className="font-mono">↓</span>
+          </button>
+          
+          <div className={`w-px h-4 mx-1 ${colors.border}`} />
+          
+          <button
+            onClick={() => selectedItem && onAction?.('describe', selectedItem)}
+            disabled={!selectedItem}
+            className={`px-2 py-1 text-xs rounded ${colors.button} disabled:opacity-40 flex items-center gap-1`}
+            title="Describe (Enter)"
+          >
+            <Eye size={12} /> <span className="hidden sm:inline">View</span>
+            <kbd className={`ml-1 px-1 py-0.5 text-[10px] rounded ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}>↵</kbd>
+          </button>
+          
+          {resourceType === 'pods' && (
+            <>
+              <button
+                onClick={() => selectedItem && onAction?.('logs', selectedItem)}
+                disabled={!selectedItem}
+                className={`px-2 py-1 text-xs rounded ${colors.button} disabled:opacity-40 flex items-center gap-1`}
+                title="Logs (l)"
+              >
+                <FileText size={12} /> <span className="hidden sm:inline">Logs</span>
+                <kbd className={`ml-1 px-1 py-0.5 text-[10px] rounded ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}>l</kbd>
+              </button>
+              <button
+                onClick={() => selectedItem && onAction?.('shell', selectedItem)}
+                disabled={!selectedItem}
+                className={`px-2 py-1 text-xs rounded ${colors.button} disabled:opacity-40 flex items-center gap-1`}
+                title="Shell (s)"
+              >
+                <Terminal size={12} /> <span className="hidden sm:inline">Shell</span>
+                <kbd className={`ml-1 px-1 py-0.5 text-[10px] rounded ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}>s</kbd>
+              </button>
+            </>
+          )}
+          
+          <div className={`w-px h-4 mx-1 ${colors.border}`} />
+          
+          <button
+            onClick={() => document.getElementById('k8s-filter-input')?.focus()}
+            className={`px-2 py-1 text-xs rounded ${colors.button} flex items-center gap-1`}
+            title="Filter (/)"
+          >
+            <Search size={12} />
+            <kbd className={`ml-1 px-1 py-0.5 text-[10px] rounded ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}>/</kbd>
+          </button>
+        </div>
       </div>
     </div>
   );

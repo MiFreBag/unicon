@@ -78,6 +78,16 @@ class SftpHandler {
     })
   }
 
+  async uploadFromStream(readable, remotePath) {
+    this._ensure()
+    return await new Promise((resolve, reject) => {
+      const ws = this.sftp.createWriteStream(remotePath)
+      ws.on('error', reject)
+      ws.on('close', () => resolve({ success: true }))
+      readable.pipe(ws)
+    })
+  }
+
   async downloadToStream(stream, remotePath) {
     this._ensure()
     return await new Promise((resolve, reject) => {
@@ -86,6 +96,11 @@ class SftpHandler {
       rs.on('end', resolve)
       rs.pipe(stream)
     })
+  }
+
+  getReadStream(remotePath) {
+    this._ensure()
+    return this.sftp.createReadStream(remotePath)
   }
 
   async downloadToBuffer(remotePath) {

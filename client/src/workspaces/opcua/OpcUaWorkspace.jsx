@@ -14,8 +14,50 @@ export default function OpcUaWorkspace({ connection }) {
   const [dataType, setDataType] = useState('Auto'); // Auto, Boolean, Int32, Float, Double, String, JSON
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState(connection?.status || 'disconnected');
-  // UI density: Simple hides advanced panels by default
-  const [simpleMode, setSimpleMode] = useState(true);
+  // UI density: Simple hides advanced panels by default (persist per-connection)
+  const simpleKey = React.useMemo(()=>`opcua_simple_mode_${connection?.id||'global'}`,[connection?.id]);
+  const [simpleMode, setSimpleMode] = useState(()=>{ try { return (localStorage.getItem(simpleKey) ?? '1') !== '0'; } catch { return true; } });
+  useEffect(()=>{ try { localStorage.setItem(simpleKey, simpleMode ? '1' : '0'); } catch(_){} }, [simpleMode, simpleKey]);
+  // Monitoring state
+  const [monitorId, setMonitorId] = useState(null);
+  const [samplingInterval, setSamplingInterval] = useState(1000);
+  const [logPath, setLogPath] = useState('');
+  const [logList, setLogList] = useState([]);
+  const canvasRef = useRef(null);
+  const [points, setPoints] = useState([]); // {t: epochMs, v: number}
+  const maxPoints = 200;
+  useEffect(() => {
+    const onWs = (e) => {
+      const msg = e.detail || {};
+      if (msg.type !== 'opcua') return;
+      const d = msg.data || {};
+      if (d.connectionId !== connection?.id) return;
+      // If a node is selected, track only that one
+      if (selectedNode && d.nodeId !== selectedNode.nodeId) return;
+      const n = Number(d.value);
+      if (!Number.isFinite(n)) return;
+      setPoints(prev => {
+        const next = [...prev, { t: Date.parse(d.ts || new Date().toISOString()), v: n }];
+        return next.length > maxPoints ? next.slice(-maxPoints) : next;
+      });
+    };
+    window.addEventListener('unicon-ws', onWs);
+    return () => window.removeEventListener('unicon-ws', onWs);
+  }, [connection?.id, selectedNode?.nodeId]);
+  useEffect(() => {
+    // Draw sparkline
+    const el = canvasRef.current; if (!el) return;
+    const ctx = el.getContext('2d'); const W = el.width = el.clientWidth || 320; const H = el.height = el.clientHeight || 80;
+    ctx.clearRect(0,0,W,H);
+    if (!points.length) { ctx.strokeStyle = '#94a3b8'; ctx.beginPath(); ctx.moveTo(0,H-1); ctx.lineTo(W,H-1); ctx.stroke(); return; }
+    const xs = points.map(p=>p.t); const ys = points.map(p=>p.v);
+    const minX = xs[0], maxX = xs[xs.length-1] || (minX+1);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const spanX = Math.max(1, maxX - minX); const spanY = maxY - minY || 1;
+    ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1.5; ctx.beginPath();
+    points.forEach((p,i)=>{ const x = ((p.t - minX)/spanX) * (W-6) + 3; const y = H - (((p.v - minY)/spanY) * (H-6) + 3); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+    ctx.stroke();
+  }, [points]);
 
   // Saved nodes (persist per connection)
   const storageKeySaved = React.useMemo(() => `opcua_saved_nodes_${connection?.id || 'global'}`,[connection?.id]);
@@ -143,6 +185,40 @@ export default function OpcUaWorkspace({ connection }) {
   const removeStep = (i) => setSeq(prev => prev.filter((_,idx)=>idx!==i));
 
   const stopSequence = () => { runIdRef.current = null; setRunning(false); };
+
+  // Simple monitor controls (uses backend operation monitorStart/monitorStop)
+  const startMonitor = async () => {
+    if (!connection?.id || !selectedNode) { alert('Select a node to monitor'); return; }
+    if (monitorId) return;
+    try {
+      const r = await op(connection.id, 'monitorStart', { nodeIds: [selectedNode.nodeId], samplingInterval: parseInt(samplingInterval||1000,10) });
+      if (r?.success && r.monitorId) {
+        setMonitorId(r.monitorId);
+        setLogPath(r.logPath || '');
+        setPoints([]);
+        window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection.id, kind:'info', message:`Monitoring ${selectedNode.nodeId} (interval ${samplingInterval} ms)` } }));
+        if (r.logPath) window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection.id, kind:'info', message:`CSV: ${r.logPath}` } }));
+      } else {
+        alert('Monitor start failed');
+      }
+    } catch (e) { alert(e.message || 'Monitor start failed'); }
+  };
+  const startMonitorForNode = async (nodeId) => {
+    if (!connection?.id || !nodeId) return;
+    if (monitorId) { try { await stopMonitor(); } catch {} }
+    const prevSel = selectedNode;
+    setSelectedNode({ nodeId, displayName: nodeId });
+    await startMonitor();
+    if (!prevSel) setSelectedNode({ nodeId, displayName: nodeId });
+  };
+  const stopMonitor = async () => {
+    if (!connection?.id || !monitorId) return;
+    try {
+      await op(connection.id, 'monitorStop', { monitorId });
+      setMonitorId(null);
+      window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection.id, kind:'info', message:`Monitor stopped` } }));
+    } catch (e) { alert(e.message || 'Monitor stop failed'); }
+  };
   const sleep = (ms) => new Promise(r=>setTimeout(r, ms));
   const toStartTs = () => {
     if (!startAt) return null;
@@ -257,6 +333,13 @@ export default function OpcUaWorkspace({ connection }) {
           <ConnectionBadge connection={connection} status={status} />
           <Button variant="secondary" onClick={onConnect} disabled={status==='connected' || isLoading} leftEl={<Play size={16} className="mr-2" />}>Connect</Button>
           <Button variant="secondary" onClick={onDisconnect} disabled={status!=='connected' || isLoading} leftEl={<Square size={16} className="mr-2" />}>Disconnect</Button>
+          <div className="flex items-center gap-2">
+            <input type="number" min="50" step="50" value={samplingInterval} onChange={e=>setSamplingInterval(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm" title="Sampling interval (ms)" />
+            <Button variant="secondary" onClick={startMonitor} disabled={isLoading || status!=='connected' || !selectedNode || !!monitorId}>Start Monitor</Button>
+            <Button variant="secondary" onClick={stopMonitor} disabled={!monitorId}>Stop Monitor</Button>
+            <Button variant="secondary" onClick={async()=>{ if(!monitorId) return; try { const r = await fetch('/unicon/api/opcua/monitor/stop-rotate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ monitorId }) }); const j = await r.json(); if (j?.success) { setMonitorId(null); window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection.id, kind:'info', message:`CSV rotated ${j.rotatedPath||''}` } })); } else { alert('Rotate failed'); } } catch(e){ alert(e.message||'Rotate failed'); } }} disabled={!monitorId}>Stop + Rotate CSV</Button>
+            <Button variant="secondary" onClick={()=>{ if(monitorId){ window.open(`/unicon/api/opcua/monitor/csv?monitorId=${encodeURIComponent(monitorId)}`,'_blank'); } }} disabled={!monitorId}>Download CSV</Button>
+          </div>
           <Button variant="secondary" onClick={()=>browseNodes()} disabled={isLoading || status!=='connected'} leftEl={<RefreshCw size={16} className={isLoading ? 'mr-2 animate-spin' : 'mr-2'} />}>Refresh</Button>
         </div>
 
@@ -436,10 +519,16 @@ export default function OpcUaWorkspace({ connection }) {
           {nodes.length ? (
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {nodes.map((node) => (
-                <div key={node.nodeId} onClick={() => { setSelectedNode(node); setNodeValue(node.value || ''); }}
-                     className={`p-2 rounded cursor-pointer hover:bg-gray-50 ${selectedNode?.nodeId === node.nodeId ? 'bg-blue-50 border border-blue-200' : ''}`}>
-                  <div className="font-medium text-sm">{node.displayName}</div>
-                  <div className="text-xs text-gray-500">{node.nodeId}</div>
+                <div key={node.nodeId} className={`p-2 rounded hover:bg-gray-50 border ${selectedNode?.nodeId === node.nodeId ? 'bg-blue-50 border-blue-200' : 'border-transparent'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="cursor-pointer" onClick={() => { setSelectedNode(node); setNodeValue(node.value || ''); }}>
+                      <div className="font-medium text-sm">{node.displayName}</div>
+                      <div className="text-xs text-gray-500">{node.nodeId}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button className="px-2 py-0.5 border rounded text-xs" onClick={()=>startMonitorForNode(node.nodeId)} disabled={status!=='connected'}>Start</button>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -452,6 +541,25 @@ export default function OpcUaWorkspace({ connection }) {
         </div>
         <div className="border rounded p-4">
           <h4 className="font-medium mb-3">Node Operations</h4>
+          <div className="mb-3 bg-gray-50 rounded p-2">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-xs text-gray-600">Live Value (selected node)</div>
+              <div className="text-[11px] text-gray-600 font-mono">
+                {(() => {
+                  const cnt = points.length;
+                  if (!cnt) return '—';
+                  const vals = points.map(p=>p.v);
+                  const min = Math.min(...vals), max = Math.max(...vals);
+                  const last = vals[vals.length-1];
+                  return `last=${last}  min=${min}  max=${max}  n=${cnt}`;
+                })()}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-sm font-mono min-w-[120px]">{points.length ? String(points[points.length-1].v) : '—'}</div>
+              <canvas ref={canvasRef} style={{ width:'100%', height: '64px' }} />
+            </div>
+          </div>
           {selectedNode ? (
             <div className="space-y-3">
               <div>
@@ -479,6 +587,42 @@ export default function OpcUaWorkspace({ connection }) {
               <p className="text-sm">Select a node to perform operations</p>
             </div>
           )}
+        </div>
+
+        {/* Logs panel */}
+        <div className="border rounded p-4 col-span-1">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-medium">Logs</h4>
+            <div className="flex items-center gap-2 text-sm">
+              <button className="px-2 py-1 border rounded" onClick={async()=>{
+                try {
+                  const r = await fetch(`/unicon/api/opcua/logs?connectionId=${encodeURIComponent(connection?.id||'')}`);
+                  const j = await r.json();
+                  setLogList(Array.isArray(j?.files)? j.files : []);
+                } catch(_){}
+              }}>Refresh</button>
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto text-sm">
+            {logList.length ? (
+              <div className="space-y-1">
+                {logList.map((f)=> (
+                  <div key={f.name} className="flex items-center justify-between border rounded px-2 py-1">
+                    <div className="truncate">
+                      <div className="font-mono text-xs truncate" title={f.name}>{f.name}</div>
+                      <div className="text-[11px] text-gray-500">{new Date(f.mtime).toLocaleString()} • {(f.size/1024).toFixed(1)} KB</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button className="px-2 py-0.5 border rounded text-xs" onClick={()=>window.open(`/unicon/api/opcua/logs/download?file=${encodeURIComponent(f.name)}`,'_blank')}>Download</button>
+                      <button className="px-2 py-0.5 border rounded text-xs" onClick={async()=>{ if(!confirm('Delete log?')) return; try { await fetch('/unicon/api/opcua/logs', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ file: f.name }) }); setLogList(prev => prev.filter(x=>x.name!==f.name)); } catch(_){} }}>Delete</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-gray-500 text-sm">No logs found</div>
+            )}
+          </div>
         </div>
 
         {/* Batch Read (Saved nodes) – hidden in simple mode */}

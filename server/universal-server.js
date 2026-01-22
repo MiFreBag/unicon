@@ -7,6 +7,7 @@ const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
 const multer = require('multer');
+const Busboy = require('busboy');
 const EnhancedRestHandler = require('./handlers/enhanced_rest_handler');
 const { createProxyMiddleware } = (() => { try { return require('http-proxy-middleware'); } catch { return { createProxyMiddleware: null }; } })();
 let verifyJWTMiddleware = null;
@@ -218,18 +219,83 @@ const createApp = (state) => {
   app.use(createCorsMiddleware(allowedOrigins));
   app.use(express.json({ limit: '10mb' }));
 
+  // Tokenized WebSSH2 launch (avoid exposing secrets until final redirect)
+  const JWT = (()=>{ try { return require('jsonwebtoken'); } catch { return null; } })();
+  const WEBSSH2_SECRET = process.env.WEBSSH2_SIGNING_SECRET || crypto.randomBytes(32).toString('hex');
+  const webssh2Store = new Map();
+  // Legacy: expand token into query (will expose in URL). Kept for compatibility.
+  app.get('/unicon/webssh2/launch', (req, res) => {
+    try {
+      if (!JWT) return res.status(500).send('JWT not available');
+      const t = req.query.t;
+      if (!t) return res.status(400).send('missing token');
+      const payload = JWT.verify(String(t), WEBSSH2_SECRET);
+      const qs = new URLSearchParams();
+      for (const k of ['host','port','user','header','pw','pk','pp']) {
+        if (payload[k] != null && payload[k] !== '') qs.set(k, String(payload[k]));
+      }
+      // Redirect into the proxy mount so the browser stays on our origin
+      return res.redirect(302, `/unicon/proxy/webssh2/?${qs.toString()}`);
+    } catch (e) {
+      return res.status(400).send('invalid/expired token');
+    }
+  });
+
+  // Preferred: start via signed token -> set short-lived cookie with secrets -> redirect to proxy without secrets in URL
+  app.get('/unicon/webssh2/start', (req, res) => {
+    try {
+      if (!JWT) return res.status(500).send('JWT not available');
+      const t = req.query.t;
+      if (!t) return res.status(400).send('missing token');
+      const payload = JWT.verify(String(t), WEBSSH2_SECRET);
+      const sid = crypto.randomBytes(12).toString('hex');
+      webssh2Store.set(sid, payload);
+      // cookie limited to proxy path, very short lifetime
+      res.setHeader('Set-Cookie', `ws2sid=${sid}; Path=/unicon/proxy/webssh2; HttpOnly; SameSite=Lax; Max-Age=15`);
+      return res.redirect(302, `/unicon/proxy/webssh2/`);
+    } catch (e) {
+      return res.status(400).send('invalid/expired token');
+    }
+  });
+
   // Optional WebSSH2 reverse proxy: set WEBSSH2_URL (e.g. http://localhost:2222)
   const WEBSSH2_URL = process.env.WEBSSH2_URL || null;
   if (WEBSSH2_URL && createProxyMiddleware) {
+    const getCookie = (name, cookie) => {
+      const m = new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()\[\]\\\/\+^])/g, '\\$1') + '=([^;]*)').exec(cookie || '');
+      return m ? decodeURIComponent(m[1]) : null;
+    };
     app.use('/unicon/proxy/webssh2', createProxyMiddleware({
       target: WEBSSH2_URL,
       changeOrigin: true,
       ws: true,
-      pathRewrite: { '^/unicon/proxy/webssh2': '/' },
       logLevel: 'warn',
+      pathRewrite: (path, req) => {
+        // Only rewrite the path for the first request if cookie is present
+        try {
+          const sid = getCookie('ws2sid', req.headers.cookie || '');
+          if (sid && webssh2Store.has(sid)) {
+            const p = webssh2Store.get(sid) || {};
+            const qs = new URLSearchParams();
+            for (const k of ['host','port','user','header','pw','pk','pp']) {
+              if (p[k] != null && p[k] !== '') qs.set(k, String(p[k]));
+            }
+            req.__ws2sid = sid; // mark for cleanup in onProxyRes
+            return '/?' + qs.toString();
+          }
+        } catch (_) {}
+        // default: trim mount prefix
+        return path.replace(/^\/unicon\/proxy\/webssh2/, '/');
+      },
       onProxyReq: (proxyReq, req) => {
-        // Preserve original host header for apps that show it
         try { proxyReq.setHeader('X-Forwarded-Host', req.headers.host || ''); } catch {}
+      },
+      onProxyRes: (proxyRes, req, res) => {
+        if (req.__ws2sid) {
+          try { webssh2Store.delete(req.__ws2sid); } catch {}
+          // expire cookie client-side
+          try { res.setHeader('Set-Cookie', 'ws2sid=; Path=/unicon/proxy/webssh2; HttpOnly; SameSite=Lax; Max-Age=0'); } catch {}
+        }
       }
     }));
   }
@@ -603,6 +669,31 @@ const createApp = (state) => {
       activeConnections: activeConnections.size,
       connectedClients: connectedClients.size
     });
+  });
+
+  // SSH WebSSH2 token minting
+  apiRouter.post('/ssh/handover-token', async (req, res) => {
+    try {
+      if (!JWT) return res.status(500).json({ success:false, error:'JWT not available' });
+      const { connectionId, includeHostPort=true, includeUser=true, includeHeader=true, includePassword=false, includePrivateKey=false } = req.body || {};
+      if (!connectionId) return res.status(400).json({ success:false, error:'connectionId required' });
+      const connection = connections.find(c => c.id === connectionId);
+      if (!connection) return res.status(404).json({ success:false, error:'connection not found' });
+      const cfg = connection.config || {};
+      const payload = {};
+      if (includeHostPort) { if (cfg.host) payload.host = cfg.host; if (cfg.port) payload.port = cfg.port; }
+      if (includeUser && cfg.username) payload.user = cfg.username;
+      if (includeHeader) payload.header = `SSH • ${connection.name || cfg.host || ''}`;
+      if (includePassword && cfg.password) payload.pw = cfg.password;
+      if (includePrivateKey && cfg.privateKey) {
+        payload.pk = cfg.privateKey; if (cfg.passphrase) payload.pp = cfg.passphrase;
+      }
+      const token = JWT.sign(payload, WEBSSH2_SECRET, { expiresIn: '45s' });
+      const launchUrl = `/unicon/webssh2/start?t=${encodeURIComponent(token)}`;
+      return res.json({ success:true, launchUrl, expSeconds:45 });
+    } catch (e) {
+      return res.status(500).json({ success:false, error: e.message });
+    }
   });
 
   apiRouter.get('/connections/export', ENFORCE ? verifyJWTMiddleware : (req,res,next)=>next(), (req, res) => {
@@ -1059,6 +1150,110 @@ const createApp = (state) => {
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
+  });
+
+  // Streaming server-side copy between connections with progress
+  apiRouter.post('/transfer/copy', async (req, res) => {
+    try {
+      const { jobId, src, dst, size } = req.body || {};
+      if (!src?.connectionId || !dst?.connectionId || !src?.path || !dst?.path) return res.status(400).json({ success:false, error:'src/dst required' });
+      const srcConn = connections.find(c => c.id === src.connectionId);
+      const dstConn = connections.find(c => c.id === dst.connectionId);
+      const srcActive = activeConnections.get(src.connectionId);
+      const dstActive = activeConnections.get(dst.connectionId);
+      if (!srcConn || !dstConn || !srcActive || !dstActive) return res.status(400).json({ success:false, error:'connections not active' });
+
+      function countTransform(jobId, total) {
+        const { Transform } = require('stream');
+        let sent = 0; let lastEmit = 0;
+        return new Transform({
+          transform(chunk, enc, cb) {
+            sent += chunk.length;
+            const now = Date.now();
+            if (!lastEmit || now - lastEmit > 200) { lastEmit = now; broadcast({ type:'transfer', data:{ jobId, phase:'progress', bytes: sent, total: total||null } }); }
+            this.push(chunk); cb();
+          },
+          flush(cb) { broadcast({ type:'transfer', data:{ jobId, phase:'progress', bytes: sent, total: total||null } }); cb(); }
+        });
+      }
+
+      async function getReadable(h, type, p) {
+        if (type === 'ftp') return h.getReadStream(p);
+        if (type === 'sftp') return h.getReadStream(p);
+        if (type === 'localfs') return h.getReadStream(p);
+        throw new Error('unsupported src type');
+      }
+      async function uploadFrom(h, type, readable, p) {
+        if (type === 'ftp') return h.uploadFromStream(readable, p);
+        if (type === 'sftp') return h.uploadFromStream(readable, p);
+        if (type === 'localfs') return h.uploadFromStream(readable, p);
+        throw new Error('unsupported dst type');
+      }
+
+      // Build pipeline
+      const rs = await getReadable(srcActive.handler, srcConn.type, src.path);
+      const ctr = countTransform(jobId || `job-${Date.now()}`, size || null);
+      broadcast({ type:'transfer', data:{ jobId, phase:'start', bytes:0, total: size||null } });
+      await uploadFrom(dstActive.handler, dstConn.type, rs.pipe(ctr), dst.path);
+      broadcast({ type:'transfer', data:{ jobId, phase:'done', bytes: size || null, total: size||null } });
+      return res.json({ success:true });
+    } catch (e) {
+      broadcast({ type:'transfer', data:{ jobId: req.body?.jobId, phase:'error', error: e.message } });
+      return res.status(500).json({ success:false, error: e.message });
+    }
+  });
+
+  // Browser-initiated streaming download
+  apiRouter.get('/stream/download', async (req, res) => {
+    try {
+      const connectionId = req.query.connectionId; const p = req.query.path;
+      if (!connectionId || !p) return res.status(400).json({ success:false, error:'connectionId and path required' });
+      const conn = connections.find(c => c.id === connectionId);
+      const active = activeConnections.get(connectionId);
+      if (!conn || !active) return res.status(400).json({ success:false, error:'connection not active' });
+      const name = (()=>{ try { return require('path').basename(p); } catch { return 'download.bin'; } })();
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+      const h = active.handler; let rs;
+      if (conn.type === 'ftp' || conn.type === 'sftp' || conn.type === 'localfs') rs = await h.getReadStream(p);
+      else return res.status(400).json({ success:false, error:'download unsupported for this type' });
+      rs.on('error', (e)=>{ try { res.destroy(e); } catch(_){} });
+      rs.pipe(res);
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+
+  // Browser-initiated streaming upload (multipart/form-data)
+  apiRouter.post('/stream/upload', async (req, res) => {
+    try {
+      const bb = Busboy({ headers: req.headers });
+      let connectionId = null; let cwd = '.'; const tasks = [];
+      bb.on('field', (name, val) => {
+        if (name === 'connectionId') connectionId = val;
+        else if (name === 'cwd') cwd = val;
+      });
+      bb.on('file', (name, file, info) => {
+        const { filename } = info || {}; const safeName = filename || 'upload.bin';
+        const pathJoin = (a,b)=>{ if(!a||a==='.') return b||''; if(a.endsWith('/')) return b?`${a}${b}`:a; return b?`${a}/${b}`:a; };
+        const targetPath = pathJoin(cwd, safeName);
+        const task = (async () => {
+          if (!connectionId) throw new Error('connectionId required');
+          const conn = connections.find(c => c.id === connectionId); const active = activeConnections.get(connectionId);
+          if (!conn || !active) throw new Error('connection not active');
+          const h = active.handler;
+          if (conn.type === 'ftp' || conn.type === 'sftp' || conn.type === 'localfs') {
+            if (conn.type === 'localfs') { try { await h.mkdir(require('path').dirname(targetPath)); } catch(_){} }
+            await h.uploadFromStream(file, targetPath);
+          } else { throw new Error('upload unsupported for this type'); }
+        })();
+        tasks.push(task);
+        file.on('error', ()=>{});
+      });
+      bb.on('close', async () => {
+        try { await Promise.all(tasks); res.json({ success:true, count: tasks.length }); }
+        catch (e) { res.status(500).json({ success:false, error: e.message }); }
+      });
+      req.pipe(bb);
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
   });
 
   // Workspaces API (file or sqlite)
@@ -1545,6 +1740,103 @@ const createApp = (state) => {
       const result = await handler.monitorStop(monitorId);
       res.json(result);
     } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+  // Stop monitor and rotate CSV (rename with timestamp), clearing for next run
+  apiRouter.post('/opcua/monitor/stop-rotate', async (req, res) => {
+    try {
+      const { connectionId, monitorId } = req.body||{};
+      if (!monitorId) return res.status(400).json({ success:false, error:'monitorId required' });
+      let handler = null; let logPath = null;
+      for (const [cid, ac] of activeConnections){
+        const h = ac?.handler;
+        if (h && h._monitors && h._monitors.has(monitorId)) {
+          handler = h; logPath = h._monitors.get(monitorId)?.logPath || null; break;
+        }
+      }
+      if (!handler) return res.status(404).json({ success:false, error:'monitor_not_found' });
+      const fs = require('fs');
+      const path = require('path');
+      // Stop first
+      await handler.monitorStop(monitorId);
+      let rotatedPath = null;
+      if (logPath && fs.existsSync(logPath)) {
+        const ext = path.extname(logPath);
+        const base = logPath.slice(0, -ext.length);
+        const ts = new Date().toISOString().replace(/[:.]/g,'-');
+        rotatedPath = `${base}-${ts}${ext}`;
+        try { fs.renameSync(logPath, rotatedPath); } catch (e) { return res.status(500).json({ success:false, error: 'rotate_failed', detail: e.message }); }
+      }
+      return res.json({ success:true, rotatedPath });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  // Download CSV for an active monitor (by monitorId)
+  apiRouter.get('/opcua/monitor/csv', async (req, res) => {
+    try {
+      const monitorId = req.query.monitorId;
+      if (!monitorId) return res.status(400).send('monitorId required');
+      let entry = null;
+      for (const [cid, ac] of activeConnections) {
+        const h = ac?.handler;
+        if (h && h._monitors && h._monitors.has(monitorId)) {
+          entry = { handler: h, monitor: h._monitors.get(monitorId), connectionId: cid };
+          break;
+        }
+      }
+      if (!entry) return res.status(404).send('monitor not found');
+      const fs = require('fs');
+      const path = require('path');
+      const p = entry.monitor?.logPath;
+      if (!p || !fs.existsSync(p)) return res.status(404).send('log not found');
+      const filename = path.basename(p);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename=\"${filename}\"`);
+      fs.createReadStream(p).pipe(res);
+    } catch (e) { res.status(500).send('server error'); }
+  });
+
+  // List/download/delete rotated OPC UA logs (CSV) in server/nodered/logs
+  apiRouter.get('/opcua/logs', async (req, res) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const dir = path.join(__dirname, 'nodered', 'logs');
+      try { fs.mkdirSync(dir, { recursive: true }); } catch(_){}
+      const files = (fs.readdirSync(dir) || []).filter(f => /\.csv$/i.test(f));
+      const { connectionId } = req.query || {};
+      const m = [];
+      for (const name of files) {
+        if (connectionId && !name.includes(connectionId)) continue;
+        const p = path.join(dir, name);
+        let st; try { st = fs.statSync(p); } catch { continue; }
+        m.push({ name, size: st.size, mtime: st.mtimeMs });
+      }
+      m.sort((a,b)=> b.mtime - a.mtime);
+      res.json({ success:true, files: m });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
+  });
+  apiRouter.get('/opcua/logs/download', async (req, res) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const name = (req.query.file||'').toString();
+      if (!name || /[\\/]/.test(name)) return res.status(400).send('invalid file');
+      const p = path.join(__dirname, 'nodered', 'logs', name);
+      if (!fs.existsSync(p)) return res.status(404).send('not found');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename=\"${name}\"`);
+      fs.createReadStream(p).pipe(res);
+    } catch (e) { res.status(500).send('server error'); }
+  });
+  apiRouter.delete('/opcua/logs', async (req, res) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const name = (req.body?.file||'').toString();
+      if (!name || /[\\/]/.test(name)) return res.status(400).json({ success:false, error:'invalid file' });
+      const p = path.join(__dirname, 'nodered', 'logs', name);
+      try { fs.unlinkSync(p); } catch (e) { return res.status(500).json({ success:false, error: e.message }); }
+      res.json({ success:true });
+    } catch (e) { res.status(500).json({ success:false, error: e.message }); }
   });
   // Connect a dataset explicitly (optional)
   apiRouter.post('/opcua/connect', async (req, res) => {

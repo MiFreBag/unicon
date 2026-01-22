@@ -933,20 +933,57 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
           </button>
         )}
         
-        {/* Keyboard shortcuts & Theme toggle */}
-        <div className={`p-2 border-t ${theme.border} text-xs ${theme.textFaint}`}>
-          <div className="flex justify-between"><span>:</span><span>Command</span></div>
-          <div className="flex justify-between"><span>1-6</span><span>Resources</span></div>
-          <div className="flex justify-between"><span>Ctrl+R</span><span>Refresh</span></div>
-          <div className="flex justify-between"><span>Ctrl+A</span><span>All Types</span></div>
-          <div className="flex justify-between"><span>Shift+P</span><span>Pulse</span></div>
+        {/* Quick Actions */}
+        <div className={`p-2 border-t ${theme.border} space-y-1`}>
+          <div className={`text-xs font-medium ${theme.textMuted} mb-2`}>Quick Actions</div>
+          
+          <button
+            onClick={() => setShowCommandPalette(true)}
+            className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded ${theme.button}`}
+            title="Open command palette"
+          >
+            <span className="flex items-center gap-2">
+              <Terminal size={12} /> Command
+            </span>
+            <kbd className={`px-1.5 py-0.5 text-[10px] rounded ${themeName === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}>:</kbd>
+          </button>
+          
+          <button
+            onClick={() => loadResources(resourceType)}
+            className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded ${theme.button}`}
+            title="Refresh resources"
+          >
+            <span className="flex items-center gap-2">
+              <RefreshCw size={12} /> Refresh
+            </span>
+            <kbd className={`px-1.5 py-0.5 text-[10px] rounded ${themeName === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}>Ctrl+R</kbd>
+          </button>
+          
+          <button
+            onClick={() => { loadAllResourceTypes(); setShowAllResources(true); }}
+            className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded ${theme.button}`}
+            title="Browse all resource types"
+          >
+            <span className="flex items-center gap-2">
+              <Layers size={12} /> All Resources
+            </span>
+            <kbd className={`px-1.5 py-0.5 text-[10px] rounded ${themeName === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}>Ctrl+A</kbd>
+          </button>
+          
+          <div className={`my-2 border-t ${theme.border}`} />
+          
+          {/* Theme toggle */}
           <button
             onClick={toggleTheme}
-            className={`mt-2 w-full flex items-center justify-center gap-1 px-2 py-1 rounded ${theme.button}`}
+            className={`w-full flex items-center justify-center gap-2 px-2 py-2 text-sm rounded-md ${
+              themeName === 'dark' 
+                ? 'bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400' 
+                : 'bg-gray-700/10 hover:bg-gray-700/20 text-gray-700'
+            } transition-colors`}
             title="Toggle theme"
           >
-            {themeName === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
-            {themeName === 'dark' ? 'Light' : 'Dark'} Mode
+            {themeName === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+            {themeName === 'dark' ? 'Light Mode' : 'Dark Mode'}
           </button>
         </div>
       </div>
@@ -1058,6 +1095,7 @@ export default function K8sWorkspace({ connectionId: initialConnectionId }) {
                   onSelect={setSelectedIndex}
                   onAction={handleAction}
                   onRefresh={() => loadResources(resourceType)}
+                  theme={theme}
                   className="h-full"
                 />
               </div>
