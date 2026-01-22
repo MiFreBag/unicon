@@ -2519,7 +2519,16 @@ const startServers = async (state) => {
       app.use(nrSettings.httpAdminRoot, RED.httpAdmin);
       app.use(nrSettings.httpNodeRoot, RED.httpNode);
       // Start Node-RED asynchronously; do not block app startup
-      RED.start().then(()=>console.log('🧩 Node-RED embedded at /unicon/flows')).catch(e => console.error('Node-RED failed to start:', e?.message || e));
+      // Wrap in Promise to catch any uncaught errors
+      (async () => {
+        try {
+          await RED.start();
+          console.log('🧩 Node-RED embedded at /unicon/flows');
+        } catch (e) {
+          console.warn('⚠️  Node-RED startup warning:', e?.message || e);
+          // Continue running even if Node-RED fails
+        }
+      })();
     } catch (e) {
       console.warn('Node-RED not installed; skipping embed:', e && e.message ? e.message : e);
     }
