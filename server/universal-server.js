@@ -2483,32 +2483,37 @@ const startServers = async (state) => {
   const http = require('http');
   const server = http.createServer(app);
 
-  // Embed Node-RED runtime under /unicon/flows (admin) and /unicon/flows/api (HTTP nodes)
-  try {
-    const RED = require('node-red');
-    const nrUserDir = path.join(__dirname, 'nodered');
-    try { fs.mkdirSync(nrUserDir, { recursive: true }); } catch (_) {}
-    const nrSettings = {
-      httpAdminRoot: '/unicon/flows',
-      httpNodeRoot: '/unicon/flows/api',
-      userDir: nrUserDir,
-      flowFile: 'flows.json',
-      functionGlobalContext: {
-        jwt: require('jsonwebtoken'),
-        jwtSecret: process.env.NR_JWT_SECRET || 'change-me',
-        opcuaServers: (() => { try { return require(path.join(nrUserDir, 'opcua-servers.json')); } catch { return { servers: [], defaultDatasetId: null }; } })(),
-        apiUsers: (() => { try { return require(path.join(nrUserDir, 'api-users.json')); } catch { return null; } })()
-      },
-      // Allow loading contrib nodes from the server-level node_modules to avoid duplicate installs
-      nodesDir: [ path.join(__dirname, 'node_modules') ]
-    };
-    RED.init(server, nrSettings);
-    app.use(nrSettings.httpAdminRoot, RED.httpAdmin);
-    app.use(nrSettings.httpNodeRoot, RED.httpNode);
-    // Start Node-RED asynchronously; do not block app startup
-    RED.start().then(()=>console.log('🧩 Node-RED embedded at /unicon/flows')).catch(e => console.error('Node-RED failed to start:', e?.message || e));
-  } catch (e) {
-    console.warn('Node-RED not installed; skipping embed:', e && e.message ? e.message : e);
+  // Optionally embed Node-RED runtime under /unicon/flows (admin) and /unicon/flows/api (HTTP nodes)
+  const ENABLE_NODERED = (process.env.FEATURE_NODERED || '1') !== '0';
+  if (ENABLE_NODERED) {
+    try {
+      const RED = require('node-red');
+      const nrUserDir = path.join(__dirname, 'nodered');
+      try { fs.mkdirSync(nrUserDir, { recursive: true }); } catch (_) {}
+      const nrSettings = {
+        httpAdminRoot: '/unicon/flows',
+        httpNodeRoot: '/unicon/flows/api',
+        userDir: nrUserDir,
+        flowFile: 'flows.json',
+        functionGlobalContext: {
+          jwt: require('jsonwebtoken'),
+          jwtSecret: process.env.NR_JWT_SECRET || 'change-me',
+          opcuaServers: (() => { try { return require(path.join(nrUserDir, 'opcua-servers.json')); } catch { return { servers: [], defaultDatasetId: null }; } })(),
+          apiUsers: (() => { try { return require(path.join(nrUserDir, 'api-users.json')); } catch { return null; } })()
+        },
+        // Allow loading contrib nodes from the server-level node_modules to avoid duplicate installs
+        nodesDir: [ path.join(__dirname, 'node_modules') ]
+      };
+      RED.init(server, nrSettings);
+      app.use(nrSettings.httpAdminRoot, RED.httpAdmin);
+      app.use(nrSettings.httpNodeRoot, RED.httpNode);
+      // Start Node-RED asynchronously; do not block app startup
+      RED.start().then(()=>console.log('🧩 Node-RED embedded at /unicon/flows')).catch(e => console.error('Node-RED failed to start:', e?.message || e));
+    } catch (e) {
+      console.warn('Node-RED not installed; skipping embed:', e && e.message ? e.message : e);
+    }
+  } else {
+    console.log('⏭️  Skipping Node-RED embed (FEATURE_NODERED=0)');
   }
 
   await new Promise((resolve) => server.listen(httpPort, '0.0.0.0', resolve));

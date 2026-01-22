@@ -1,5 +1,5 @@
 import React from 'react';
-import { Server, Globe, Zap, MessageSquare, Code, Database } from 'lucide-react';
+import { Server, Globe, Zap, MessageSquare, Code, Database, Radio, Wifi } from 'lucide-react';
 
 export const connectionTypes = {
   'opc-ua': {
@@ -101,6 +101,38 @@ export const connectionTypes = {
       { name: 'kubeconfig', label: 'Kubeconfig (YAML)', type: 'textarea', placeholder: 'apiVersion: v1...', condition: { field: 'kubeconfigSource', value: 'inline' } },
       { name: 'context', label: 'Context', type: 'text', placeholder: 'optional context override' },
       { name: 'namespace', label: 'Default Namespace', type: 'text', placeholder: 'default' }
+    ]
+  },
+  'ntcip-ess': {
+    name: 'NTCIP ESS (1204)',
+    icon: <Wifi size={16} />,
+    color: 'cyan',
+    fields: [
+      { name: 'host', label: 'Host', type: 'text', placeholder: '192.168.1.50', required: true },
+      { name: 'port', label: 'Port', type: 'number', placeholder: '161', default: 161 },
+      { name: 'version', label: 'SNMP Version', type: 'select', options: ['2c', '3'], default: '2c' },
+      { name: 'community', label: 'Community String (v2c)', type: 'text', placeholder: 'public', condition: { field: 'version', value: '2c' } },
+      { name: 'username', label: 'Username (v3)', type: 'text', placeholder: 'admin', condition: { field: 'version', value: '3' } },
+      { name: 'authProtocol', label: 'Auth Protocol (v3)', type: 'select', options: ['sha', 'md5'], default: 'sha', condition: { field: 'version', value: '3' } },
+      { name: 'authKey', label: 'Auth Key (v3)', type: 'password', placeholder: 'authentication password', condition: { field: 'version', value: '3' } },
+      { name: 'timeoutMs', label: 'Timeout (ms)', type: 'number', placeholder: '5000', default: 5000 },
+      { name: 'retries', label: 'Retries', type: 'number', placeholder: '2', default: 2 }
+    ]
+  },
+  'ntcip-1203': {
+    name: 'NTCIP VMS (1203)',
+    icon: <Radio size={16} />,
+    color: 'orange',
+    fields: [
+      { name: 'host', label: 'Host', type: 'text', placeholder: '192.168.1.51', required: true },
+      { name: 'port', label: 'Port', type: 'number', placeholder: '161', default: 161 },
+      { name: 'version', label: 'SNMP Version', type: 'select', options: ['2c', '3'], default: '2c' },
+      { name: 'community', label: 'Community String (v2c)', type: 'text', placeholder: 'public', condition: { field: 'version', value: '2c' } },
+      { name: 'username', label: 'Username (v3)', type: 'text', placeholder: 'admin', condition: { field: 'version', value: '3' } },
+      { name: 'authProtocol', label: 'Auth Protocol (v3)', type: 'select', options: ['sha', 'md5'], default: 'sha', condition: { field: 'version', value: '3' } },
+      { name: 'authKey', label: 'Auth Key (v3)', type: 'password', placeholder: 'authentication password', condition: { field: 'version', value: '3' } },
+      { name: 'timeoutMs', label: 'Timeout (ms)', type: 'number', placeholder: '5000', default: 5000 },
+      { name: 'retries', label: 'Retries', type: 'number', placeholder: '2', default: 2 }
     ]
   }
 };

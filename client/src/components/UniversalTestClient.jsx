@@ -262,6 +262,8 @@ const ConnectionWorkspace = ({ connection, onConnect, onDisconnect, isLoading })
         {connection.type === 'grpc' && <GrpcWorkspace connection={connection} />}
         {connection.type === 'cpd' && <CpdWorkspace connection={connection} />}
         {connection.type === 'sql' && <SqlWorkspace connection={connection} />}
+        {connection.type === 'ntcip-ess' && <NtcipEssWorkspaceWithFallback connection={connection} />}
+        {connection.type === 'ntcip-1203' && <NTCIPVMS1203WorkspaceWithFallback connection={connection} />}
       </div>
     </div>
   );
@@ -1262,6 +1264,33 @@ const SqlWorkspace = ({ connection }) => {
       )}
     </div>
   );
+};
+
+// Import and wrap NTCIP ESS Workspace
+const NtcipEssWorkspace = React.lazy(() => import('../workspaces/NtcipEssWorkspace'));
+const NtcipEssWorkspaceWithFallback = (props) => (
+  <React.Suspense fallback={<div className="p-4">Loading NTCIP ESS...</div>}>
+    <NtcipEssWorkspace {...props} api={api} />
+  </React.Suspense>
+);
+
+// Import and wrap NTCIP VMS Workspace
+const NTCIPVMS1203Workspace = React.lazy(() => import('../workspaces/NtcipVmsWorkspace'));
+const NTCIPVMS1203WorkspaceWithFallback = (props) => (
+  <React.Suspense fallback={<div className="p-4">Loading NTCIP VMS...</div>}>
+    <NTCIPVMS1203Workspace {...props} api={api} />
+  </React.Suspense>
+);
+
+const api = {
+  post: async (endpoint, data) => {
+    const response = await fetch(`/unicon/api${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return { data: await response.json() };
+  }
 };
 
   return (
