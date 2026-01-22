@@ -1308,6 +1308,15 @@ const api = {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <a
+              href="http://localhost:1880"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg shadow hover:bg-red-700"
+            >
+              <Zap size={18} />
+              Node-RED
+            </a>
             <button
               onClick={() => setIsHelpOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700"

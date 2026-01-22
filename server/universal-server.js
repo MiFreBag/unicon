@@ -2305,6 +2305,17 @@ const createApp = (state) => {
   });
 
   // FTP utilities end
+  
+  // Node-RED integration link
+  apiRouter.get('/node-red-link', (req, res) => {
+    res.json({
+      success: true,
+      url: 'http://localhost:1880',
+      message: 'Node-RED editor is available at http://localhost:1880',
+      note: 'Start Node-RED server with: npm run nodered:start'
+    });
+  });
+
   apiRouter.post('/tools/dns', async (req, res) => {
     try {
       const { name, rrtype = 'A', timeoutMs = 8000 } = req.body || {};
