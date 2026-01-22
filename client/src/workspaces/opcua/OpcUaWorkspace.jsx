@@ -14,6 +14,8 @@ export default function OpcUaWorkspace({ connection }) {
   const [dataType, setDataType] = useState('Auto'); // Auto, Boolean, Int32, Float, Double, String, JSON
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState(connection?.status || 'disconnected');
+  // UI density: Simple hides advanced panels by default
+  const [simpleMode, setSimpleMode] = useState(true);
 
   // Saved nodes (persist per connection)
   const storageKeySaved = React.useMemo(() => `opcua_saved_nodes_${connection?.id || 'global'}`,[connection?.id]);
@@ -249,13 +251,17 @@ export default function OpcUaWorkspace({ connection }) {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium">OPC UA Browser</h3>
         <div className="flex items-center gap-3">
+          <label className="flex items-center text-sm gap-2 mr-2">
+            <input type="checkbox" checked={simpleMode} onChange={e=>setSimpleMode(e.target.checked)} /> Simple mode
+          </label>
           <ConnectionBadge connection={connection} status={status} />
           <Button variant="secondary" onClick={onConnect} disabled={status==='connected' || isLoading} leftEl={<Play size={16} className="mr-2" />}>Connect</Button>
           <Button variant="secondary" onClick={onDisconnect} disabled={status!=='connected' || isLoading} leftEl={<Square size={16} className="mr-2" />}>Disconnect</Button>
           <Button variant="secondary" onClick={()=>browseNodes()} disabled={isLoading || status!=='connected'} leftEl={<RefreshCw size={16} className={isLoading ? 'mr-2 animate-spin' : 'mr-2'} />}>Refresh</Button>
         </div>
 
-        {/* Saved nodes */}
+        {/* Saved nodes (hidden in simple mode) */}
+        {!simpleMode && (
         <div className="border rounded p-4">
           <div className="flex items-center justify-between mb-2">
             <h4 className="font-medium">Saved Nodes</h4>
@@ -291,8 +297,10 @@ export default function OpcUaWorkspace({ connection }) {
             <button className="px-2 py-1 border rounded" onClick={()=>setSelectedSaved(new Set())}>Clear selection</button>
           </div>
         </div>
+        )}
 
-        {/* Sequence builder */}
+        {/* Sequence builder (hidden in simple mode) */}
+        {!simpleMode && (
         <div className="border rounded p-4 col-span-3">
           <div className="flex items-center justify-between mb-2">
             <h4 className="font-medium">Write Sequence</h4>
@@ -414,9 +422,10 @@ export default function OpcUaWorkspace({ connection }) {
             })()}
           </div>
         </div>
+        )}
       </div>
       <ConnectionLog connectionId={connection?.id} />
-      <div className="flex-1 grid grid-cols-3 gap-4">
+      <div className={`flex-1 grid ${simpleMode ? 'grid-cols-2' : 'grid-cols-3'} gap-4`}>
         <div className="border rounded p-4">
           <div className="flex items-center justify-between mb-3">
             <h4 className="font-medium">Nodes</h4>
@@ -472,7 +481,8 @@ export default function OpcUaWorkspace({ connection }) {
           )}
         </div>
 
-        {/* Batch Read (Saved nodes) */}
+        {/* Batch Read (Saved nodes) – hidden in simple mode */}
+        {!simpleMode && (
         <div className="border rounded p-4 col-span-3">
           <div className="flex items-center justify-between mb-2">
             <h4 className="font-medium">Batch Read (Saved Nodes)</h4>
@@ -529,6 +539,7 @@ export default function OpcUaWorkspace({ connection }) {
             <div className="text-sm text-gray-500">No results yet.</div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

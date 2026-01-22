@@ -33,6 +33,7 @@ export default function Sidebar({ onOpenWorkspace, activeTabKind }) {
         <Item iconName="message-square" label="gRPC" onClick={() => onOpenWorkspace('grpc')} />
         <Item iconName="layers" label="CPD" onClick={() => onOpenWorkspace('cpd')} />
         <Item iconName="database" label="SQL" onClick={() => onOpenWorkspace('sql')} />
+        <Item iconName="layers" label="File Commander" onClick={() => onOpenWorkspace('commander')} />
       </div>
 
       <div className="pt-4 border-t border-gray-200" />

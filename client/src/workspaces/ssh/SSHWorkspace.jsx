@@ -3,6 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { listConnections, connectConnection, disconnectConnection, op, createConnection } from '../../lib/api';
 import { Play, Square, Terminal, RefreshCw } from 'lucide-react';
 import { Terminal as XTerm } from 'xterm';
+import Button from '../../ui/Button.jsx';
+import Input from '../../ui/Input.jsx';
+import Select from '../../ui/Select.jsx';
+import Checkbox from '../../ui/Checkbox.jsx';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 import ConnectionLog from '../../components/ConnectionLog.jsx';
 import { FitAddon } from 'xterm-addon-fit';
@@ -10,12 +14,11 @@ import 'xterm/css/xterm.css';
 
 function makeWSUrl() {
   const envUrl = import.meta?.env?.VITE_WS_URL;
+  if (envUrl) return envUrl;
   const port = import.meta?.env?.VITE_WS_PORT || 8080;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const sameOrigin = `${proto}://${location.host}/ws`;
-  const fallback = `ws://localhost:${port}`;
-  // Prefer same-origin so Vite can proxy wss->ws in dev; allow override via VITE_WS_URL
-  return envUrl || sameOrigin;
+  // Connect directly to WS server port (no path). In dev, Vite can still proxy if VITE_WS_URL is set.
+  return `${proto}://${location.hostname}:${port}`;
 }
 
 export default function SSHWorkspace({ connectionId: initialConnectionId, openTab }) {
@@ -26,6 +29,7 @@ export default function SSHWorkspace({ connectionId: initialConnectionId, openTa
   const [logs, setLogs] = useState([]); // [{ts, level, message, code?, hint?}]
   // Quick connect form
   const [qc, setQc] = useState({ host: 'localhost', port: 22, username: 'root', authType: 'password', password: '', privateKey: '', passphrase: '' });
+  const [handover, setHandover] = useState({ includeHostPort: true, includeUser: true, includeHeader: true, includePassword: false, includePrivateKey: false });
   const [loading, setLoading] = useState(false);
   const termRef = useRef(null);
   const xtermRef = useRef(null);
@@ -48,6 +52,9 @@ export default function SSHWorkspace({ connectionId: initialConnectionId, openTa
   // Setup WebSocket to receive shell data
   useEffect(() => {
     const ws = new WebSocket(makeWSUrl());
+    ws.onopen = () => {
+      // no-op, ready for input
+    };
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
@@ -67,9 +74,10 @@ export default function SSHWorkspace({ connectionId: initialConnectionId, openTa
         }
       } catch (_) {}
     };
+    ws.onerror = () => {};
     wsRef.current = ws;
     return () => { try { ws.close(); } catch (_) {} };
-  }, [sessionId]);
+  }, [sessionId, selectedId]);
 
 // Create terminal instance (defer until container is attached)
 useEffect(() => {
@@ -101,7 +109,14 @@ useEffect(() => {
       // Send typed data to server when a session is active
       xterm.onData(async (data) => {
         if (!sessionId) return;
-        try { await op(selectedId, 'shellInput', { sessionId, data }); } catch {}
+        try {
+          const ws = wsRef.current;
+          if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'sshInput', data: { connectionId: selectedId, sessionId, data } }));
+          } else {
+            await op(selectedId, 'shellInput', { sessionId, data });
+          }
+        } catch {}
       });
 
       // Cleanup
@@ -214,6 +229,29 @@ useEffect(() => {
     await listSftp();
   }
 
+  function openAdvanced() {
+    const sel = (connections || []).find(c => c.id === selectedId);
+    if (!sel) return;
+    const base = '/unicon/proxy/webssh2/';
+    const qs = new URLSearchParams();
+    if (handover.includeHostPort) {
+      const host = sel.config?.host || '';
+      const port = sel.config?.port || 22;
+      if (host) qs.set('host', host);
+      if (port) qs.set('port', String(port));
+    }
+    if (handover.includeUser) {
+      const user = sel.config?.username || '';
+      if (user) qs.set('user', user);
+    }
+    if (handover.includeHeader) {
+      qs.set('header', `SSH • ${sel.name || sel.config?.host || ''}`);
+    }
+    // Secrets intentionally not sent by default. If you want, enable and map to WebSSH2 config later.
+    const url = `${base}?${qs.toString()}`;
+    try { window.open(url, '_blank', 'noopener'); } catch {}
+  }
+
   async function quickCreate(kind) {
     if (!kind) return;
     if (kind === 'ssh_local') {
@@ -278,24 +316,24 @@ useEffect(() => {
       <div className="border rounded p-3 bg-gray-50">
         <div className="text-sm font-medium mb-2">Quick Connect (SSH)</div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <input className="border rounded px-2 py-1" placeholder="host" value={qc.host} onChange={e=>setQc(p=>({...p, host:e.target.value}))} />
-          <input className="border rounded px-2 py-1" placeholder="port" type="number" value={qc.port} onChange={e=>setQc(p=>({...p, port:e.target.value}))} />
-          <input className="border rounded px-2 py-1" placeholder="username" value={qc.username} onChange={e=>setQc(p=>({...p, username:e.target.value}))} />
-          <select className="border rounded px-2 py-1" value={qc.authType} onChange={e=>setQc(p=>({...p, authType:e.target.value}))}>
+          <Input placeholder="host" value={qc.host} onChange={e=>setQc(p=>({...p, host:e.target.value}))} />
+          <Input placeholder="port" type="number" value={qc.port} onChange={e=>setQc(p=>({...p, port:e.target.value}))} />
+          <Input placeholder="username" value={qc.username} onChange={e=>setQc(p=>({...p, username:e.target.value}))} />
+          <Select value={qc.authType} onChange={e=>setQc(p=>({...p, authType:e.target.value}))}>
             <option value="password">Password</option>
             <option value="privateKey">Private Key</option>
-          </select>
+          </Select>
           {qc.authType==='password' ? (
-            <input className="border rounded px-2 py-1" placeholder="password" type="password" value={qc.password} onChange={e=>setQc(p=>({...p, password:e.target.value}))} />
+            <Input placeholder="password" type="password" value={qc.password} onChange={e=>setQc(p=>({...p, password:e.target.value}))} />
           ) : (
             <>
-              <textarea className="col-span-2 border rounded px-2 py-1 font-mono text-xs" rows={3} placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" value={qc.privateKey} onChange={e=>setQc(p=>({...p, privateKey:e.target.value}))} />
-              <input className="border rounded px-2 py-1" placeholder="passphrase (optional)" type="password" value={qc.passphrase} onChange={e=>setQc(p=>({...p, passphrase:e.target.value}))} />
+              <textarea className="col-span-2 h-28 border rounded px-2 py-1 font-mono text-xs" placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" value={qc.privateKey} onChange={e=>setQc(p=>({...p, privateKey:e.target.value}))} />
+              <Input placeholder="passphrase (optional)" type="password" value={qc.passphrase} onChange={e=>setQc(p=>({...p, passphrase:e.target.value}))} />
             </>
           )}
         </div>
         <div className="mt-2">
-          <button className="px-3 py-1.5 border rounded bg-blue-600 text-white" onClick={quickConnect}>Quick Connect</button>
+          <Button onClick={quickConnect}>Quick Connect</Button>
         </div>
       </div>
 
@@ -303,9 +341,9 @@ useEffect(() => {
       <div className="border rounded p-3">
         <div className="text-sm font-medium mb-2">Quick Exec (one-shot)</div>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
-          <input className="md:col-span-4 border rounded px-2 py-1 font-mono text-sm" placeholder="command (e.g., whoami)" value={quickCmd} onChange={e=>setQuickCmd(e.target.value)} />
-          <input className="md:col-span-1 border rounded px-2 py-1 font-mono text-sm" placeholder="cwd (optional)" value={quickCwd} onChange={e=>setQuickCwd(e.target.value)} />
-          <button className="md:col-span-1 px-3 py-1.5 border rounded bg-blue-600 text-white" onClick={runQuickExec} disabled={quickBusy || !selectedId}>{quickBusy ? 'Running…' : 'Run'}</button>
+          <Input className="md:col-span-4 font-mono text-sm" placeholder="command (e.g., whoami)" value={quickCmd} onChange={e=>setQuickCmd(e.target.value)} />
+          <Input className="md:col-span-1 font-mono text-sm" placeholder="cwd (optional)" value={quickCwd} onChange={e=>setQuickCwd(e.target.value)} />
+          <Button className="md:col-span-1" onClick={runQuickExec} disabled={quickBusy || !selectedId}>{quickBusy ? 'Running…' : 'Run'}</Button>
         </div>
       </div>
 
@@ -325,12 +363,9 @@ useEffect(() => {
           </select>
         </div>
         <div className="flex gap-2">
-          <button onClick={onConnect} disabled={!selectedId || loading || status==='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
-            {loading ? <RefreshCw size={14} className="animate-spin"/> : <Play size={14}/>} Connect
-          </button>
-          <button onClick={onDisconnect} disabled={!selectedId || loading || status!=='connected'} className="inline-flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-50">
-            <Square size={14}/> Disconnect
-          </button>
+          <Button variant="secondary" onClick={onConnect} disabled={!selectedId || loading || status==='connected'} leftEl={loading ? <RefreshCw size={14} className="animate-spin"/> : <Play size={14}/>}>Connect</Button>
+          <Button variant="secondary" onClick={onDisconnect} disabled={!selectedId || loading || status!=='connected'} leftEl={<Square size={14}/>}>Disconnect</Button>
+          <Button variant="secondary" onClick={() => openAdvanced()} disabled={!selectedId} leftEl={<Terminal size={14}/>}>Advanced Terminal</Button>
         </div>
       </div>
 
@@ -369,9 +404,9 @@ useEffect(() => {
           <div className="flex items-end gap-2 mb-2">
             <div className="flex-1">
               <label className="block text-sm text-gray-600">SFTP Path</label>
-              <input className="w-full border rounded px-2 py-1" value={sftpPath} onChange={e => setSftpPath(e.target.value)} />
+              <Input value={sftpPath} onChange={e => setSftpPath(e.target.value)} />
             </div>
-            <button className="px-3 py-1.5 border rounded" disabled={status!=='connected'} onClick={listSftp}>List</button>
+            <Button variant="secondary" disabled={status!=='connected'} onClick={listSftp}>List</Button>
             <label className="px-3 py-1.5 border rounded cursor-pointer">
               Upload
               <input type="file" className="hidden" onChange={e => e.target.files && e.target.files[0] && uploadFile(e.target.files[0])} />
@@ -388,6 +423,20 @@ useEffect(() => {
           </div>
         </div>
         <div className="text-xs text-gray-500 flex items-center">Status: {status}{sessionId ? ` • session ${sessionId.slice(0,8)}` : ''}</div>
+      </div>
+
+      {/* Advanced Terminal handover options */}
+      <div className="border rounded p-3">
+        <div className="text-sm font-medium mb-2">Advanced Terminal (WebSSH2) Handover</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <Checkbox id="ho-host" label="Include Host/Port" checked={handover.includeHostPort} onChange={e=>setHandover(p=>({...p, includeHostPort: e.target.checked}))} />
+          <Checkbox id="ho-user" label="Include Username" checked={handover.includeUser} onChange={e=>setHandover(p=>({...p, includeUser: e.target.checked}))} />
+          <Checkbox id="ho-head" label="Include Header Title" checked={handover.includeHeader} onChange={e=>setHandover(p=>({...p, includeHeader: e.target.checked}))} />
+        </div>
+        <div className="mt-2 text-xs text-gray-600">Secrets (password/private key) are not sent by default.</div>
+        <div className="mt-2">
+          <Button variant="secondary" onClick={() => openAdvanced()} disabled={!selectedId} leftEl={<Terminal size={14}/>}>Open Advanced Terminal</Button>
+        </div>
       </div>
     </div>
   );

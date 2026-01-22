@@ -38,6 +38,7 @@ export default function AppShell() {
     sql: { title: 'SQL', icon: Database, component: SqlWorkspace },
     ftp: { title: 'FTP', icon: Database, component: FtpWorkspace },
     sftp: { title: 'SFTP', icon: Database, component: SftpWorkspace },
+    commander: { title: 'File Commander', icon: Layers, component: React.lazy(() => import('../workspaces/file-commander/Commander.jsx')) },
     'helpers-network': { title: 'Network Tools', icon: Server, component: React.lazy(() => import('../workspaces/helpers/NetworkTools.jsx')) },
     'helpers-format': { title: 'JSON/YAML Tools', icon: Layers, component: React.lazy(() => import('../workspaces/helpers/FormatTools.jsx')) },
     templates: { title: 'Templates', icon: List, component: React.lazy(() => import('../features/templates/TemplatesAdmin.jsx')) },

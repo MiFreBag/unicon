@@ -8,6 +8,7 @@ const https = require('https');
 const crypto = require('crypto');
 const multer = require('multer');
 const EnhancedRestHandler = require('./handlers/enhanced_rest_handler');
+const { createProxyMiddleware } = (() => { try { return require('http-proxy-middleware'); } catch { return { createProxyMiddleware: null }; } })();
 let verifyJWTMiddleware = null;
 let requireRolesMiddleware = null;
 try { const mw = require('./auth/middleware'); verifyJWTMiddleware = mw.verifyJWT; requireRolesMiddleware = mw.requireRoles; } catch (_) { /* auth not enabled */ }
@@ -216,6 +217,22 @@ const createApp = (state) => {
   app.locals.__ready = false;
   app.use(createCorsMiddleware(allowedOrigins));
   app.use(express.json({ limit: '10mb' }));
+
+  // Optional WebSSH2 reverse proxy: set WEBSSH2_URL (e.g. http://localhost:2222)
+  const WEBSSH2_URL = process.env.WEBSSH2_URL || null;
+  if (WEBSSH2_URL && createProxyMiddleware) {
+    app.use('/unicon/proxy/webssh2', createProxyMiddleware({
+      target: WEBSSH2_URL,
+      changeOrigin: true,
+      ws: true,
+      pathRewrite: { '^/unicon/proxy/webssh2': '/' },
+      logLevel: 'warn',
+      onProxyReq: (proxyReq, req) => {
+        // Preserve original host header for apps that show it
+        try { proxyReq.setHeader('X-Forwarded-Host', req.headers.host || ''); } catch {}
+      }
+    }));
+  }
 
   // in-memory upload storage for OpenAPI files
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -481,6 +498,10 @@ const createApp = (state) => {
         } else if (connection.type === 'sftp') {
           const SftpHandler = require('./handlers/sftp_handler');
           handler = new SftpHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'localfs') {
+          const LocalFSHandler = require('./handlers/localfs_handler');
+          handler = new LocalFSHandler(connection.id, connection.config || {});
           await handler.connect();
         }
       } catch (e) {
@@ -796,6 +817,17 @@ const createApp = (state) => {
             return res.json(await h.rename(params?.from, params?.to));
           case 'remove':
             return res.json(await h.remove(params?.path));
+          case 'download': {
+            const buf = await h.downloadToBuffer(params?.path);
+            return res.json({ success: true, data: { base64: buf.toString('base64'), size: buf.length } });
+          }
+          case 'upload': {
+            const base64 = params?.base64; const target = params?.path;
+            if (!base64 || !target) return res.status(400).json({ success:false, error:'path and base64 required' });
+            const buf = Buffer.from(base64, 'base64');
+            const r = await h.uploadFromBuffer(buf, target);
+            return res.json(r);
+          }
           default:
             return res.status(400).json({ success: false, error: `Unknown FTP operation: ${operation}` });
         }
@@ -813,8 +845,40 @@ const createApp = (state) => {
             return res.json(await h.rename(params?.from, params?.to));
           case 'remove':
             return res.json(await h.remove(params?.path));
+          case 'download': {
+            const buf = await h.downloadToBuffer(params?.path);
+            return res.json({ success: true, data: { base64: buf.toString('base64'), size: buf.length } });
+          }
+          case 'upload': {
+            const base64 = params?.base64; const target = params?.path;
+            if (!base64 || !target) return res.status(400).json({ success:false, error:'path and base64 required' });
+            const buf = Buffer.from(base64, 'base64');
+            const r = await h.uploadFromBuffer(buf, target);
+            return res.json(r);
+          }
           default:
             return res.status(400).json({ success: false, error: `Unknown SFTP operation: ${operation}` });
+        }
+      }
+
+      // LocalFS operations
+      if (connection.type === 'localfs' && active.handler) {
+        const h = active.handler;
+        switch (operation) {
+          case 'list':
+            return res.json(await h.list(params?.path || '.'));
+          case 'mkdir':
+            return res.json(await h.mkdir(params?.path));
+          case 'rename':
+            return res.json(await h.rename(params?.from, params?.to));
+          case 'remove':
+            return res.json(await h.remove(params?.path));
+          case 'download':
+            return res.json(await h.download(params?.path));
+          case 'upload':
+            return res.json(await h.upload(params?.path, params?.base64, params?.overwrite !== false));
+          default:
+            return res.status(400).json({ success: false, error: `Unknown LocalFS operation: ${operation}` });
         }
       }
 
@@ -1809,7 +1873,7 @@ const createApp = (state) => {
   return app;
 };
 
-const createWebSocketServer = (connectedClients, customPort = WS_PORT) => {
+const createWebSocketServer = (connectedClients, customPort = WS_PORT, activeConnections = null) => {
   const keyPath = process.env.HTTPS_KEY_FILE;
   const certPath = process.env.HTTPS_CERT_FILE;
   let wsServer;
@@ -1825,6 +1889,19 @@ const createWebSocketServer = (connectedClients, customPort = WS_PORT) => {
 
   wsServer.on('connection', ws => {
     connectedClients.add(ws);
+
+    ws.on('message', async (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg && msg.type === 'sshInput' && activeConnections) {
+          const { connectionId, sessionId, data: payload } = msg.data || {};
+          const active = activeConnections.get(connectionId);
+          if (active && active.type === 'ssh' && active.handler && sessionId && typeof active.handler.shellInput === 'function') {
+            try { await active.handler.shellInput({ sessionId, data: payload }); } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    });
 
     ws.on('close', () => {
       connectedClients.delete(ws);
@@ -1903,7 +1980,7 @@ const startServers = async (state) => {
     process.env.PORT = String(httpPort);
     process.env.WS_PORT = String(wsPort);
   }
-  const wsServer = createWebSocketServer(appState.connectedClients, wsPort);
+  const wsServer = createWebSocketServer(appState.connectedClients, wsPort, appState.activeConnections);
   const http = require('http');
   const server = http.createServer(app);
 

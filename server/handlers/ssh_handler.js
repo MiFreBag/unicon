@@ -56,8 +56,10 @@ class SSHHandler {
 
   async exec(command, cwd) {
     if (!this.isConnected || !this.client) throw new Error('SSH not connected');
+    const shQuote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
+    const fullCmd = cwd ? `cd ${shQuote(cwd)} && ${command}` : command;
     return new Promise((resolve, reject) => {
-      this.client.exec(command, { cwd }, (err, stream) => {
+      this.client.exec(fullCmd, {}, (err, stream) => {
         if (err) return reject(err);
         let stdout = '', stderr = '';
         stream.on('close', (code, signal) => {

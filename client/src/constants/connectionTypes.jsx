@@ -83,6 +83,14 @@ export const connectionTypes = {
       { name: 'passphrase', label: 'Passphrase', type: 'password', placeholder: 'optional', condition: { field: 'authType', value: 'privateKey' } }
     ]
   },
+  'localfs': {
+    name: 'Local Files',
+    icon: <Server size={16} />,
+    color: 'slate',
+    fields: [
+      { name: 'root', label: 'Root Folder', type: 'text', placeholder: 'C:/path/to/root or /home/user/files', required: false }
+    ]
+  },
   'k8s': {
     name: 'Kubernetes',
     icon: <Server size={16} />,
