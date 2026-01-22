@@ -19,6 +19,7 @@ import {
   Globe
 } from 'lucide-react';
 import Button from '../ui/Button.jsx';
+import Input from '../ui/Input.jsx';
 import ConnectionBadge from '../ui/ConnectionBadge.jsx';
 import ConnectionLog from '../components/ConnectionLog.jsx';
 

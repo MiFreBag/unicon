@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import Button from '../../ui/Button.jsx';
 import Input from '../../ui/Input.jsx';
+import Checkbox from '../../ui/Checkbox.jsx';
 import ConnectionBadge from '../../ui/ConnectionBadge.jsx';
 import ConnectionLog from '../../components/ConnectionLog.jsx';
 import { EXAMPLE_PRESETS } from '../../features/examples/presets.js';
@@ -88,14 +89,7 @@ export default function WebSocketWorkspace({ connection, openTab }) {
           </select>
         </div>
         <span>Status: {status}</span>
-        <label className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={autoReconnect}
-            onChange={(e) => setAutoReconnect(e.target.checked)}
-          />
-          Auto-reconnect
-        </label>
+        <Checkbox id="ws-autoreconnect" label="Auto-reconnect" checked={autoReconnect} onChange={(e) => setAutoReconnect(e.target.checked)} />
         <Button variant="secondary" disabled={status==='connected'} onClick={() =>
           fetch('/unicon/api/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connectionId:connection.id})})
         }>Connect</Button>
