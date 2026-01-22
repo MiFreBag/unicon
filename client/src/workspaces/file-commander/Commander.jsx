@@ -71,6 +71,10 @@ async function copyOne({ src, dst, name }) {
 export default function Commander() {
   const left = usePane();
   const right = usePane();
+
+  // Native (browser) local left pane
+  const localLeft = useLocalPane();
+  const [useLocalLeft, setUseLocalLeft] = React.useState(false);
   const [all, setAll] = React.useState([]);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState({ totalFiles: 0, doneFiles: 0, totalBytes: 0, doneBytes: 0, running: false, phase: '' });
@@ -206,7 +210,7 @@ export default function Commander() {
     </div>
   );
 
-  const Pane = ({ pane, side, onDropFromOther }) => (
+  const Pane = ({ pane, side, onDropFromOther, onDropLocal }) => (
     <div className="flex-1 flex flex-col border rounded">
       <div className="flex items-center gap-2 p-2 border-b">
         <Button variant="secondary" onClick={pane.goUp}>Up</Button>
@@ -227,12 +231,18 @@ export default function Commander() {
       </div>
       <div className="flex-1 overflow-auto" onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>{
         try {
+          const sLocal = e.dataTransfer.getData('application/x-unicon-local');
+          if (sLocal) {
+            const payload = JSON.parse(sLocal);
+            if (Array.isArray(payload.relPaths) && payload.relPaths.length) { onDropLocal && onDropLocal(payload.relPaths); return; }
+          }
           const s = e.dataTransfer.getData('application/x-unicon');
-          if (!s) return;
-          const payload = JSON.parse(s);
-          if (payload.from && payload.from !== side && Array.isArray(payload.names) && payload.names.length){ onDropFromOther(payload.names, payload.from); }
-        } catch(_){}
-      }}>
+          if (s) {
+            const payload = JSON.parse(s);
+            if (payload.from && payload.from !== side && Array.isArray(payload.names) && payload.names.length){ onDropFromOther(payload.names, payload.from); return; }
+          }
+        } catch(_){}}
+      }>
         <table className="w-full text-sm">
           <thead className="bg-gray-50"><tr><th className="px-2 py-1 w-6"></th><th className="text-left px-2 py-1">Name</th><th className="text-left px-2 py-1">Type</th><th className="text-left px-2 py-1">Size</th></tr></thead>
           <tbody>
@@ -265,7 +275,15 @@ export default function Commander() {
       </div>
 
       <div className="flex items-center gap-6">
-        <ConnPicker pane={left} />
+        {useLocalLeft ? (
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={async()=>{ const ok = await localLeft.pickRoot(); if (ok) await localLeft.list('.'); }}>Pick folder…</Button>
+            <div className="text-sm text-gray-600">{localLeft.rootName || 'No folder selected'}</div>
+            <Button variant="secondary" onClick={()=>localLeft.goUp()} disabled={!localLeft.canGoUp}>Up</Button>
+          </div>
+        ) : (
+          <ConnPicker pane={left} />
+        )}
         <div className="flex items-center gap-3">
           <Button onClick={()=>copy(right, left)} disabled={busy || !right.sel.size}>← Copy</Button>
           <Button onClick={()=>copy(left, right)} disabled={busy || !left.sel.size}>Copy →</Button>
@@ -282,11 +300,133 @@ export default function Commander() {
           </div>
         </div>
         <ConnPicker pane={right} />
+        <Button variant="secondary" onClick={()=>setUseLocalLeft(v=>!v)}>{useLocalLeft ? 'Use connection on left' : 'Use Local (This computer) on left'}</Button>
       </div>
 
       <div className="flex gap-3 min-h-[400px]">
-        <Pane side="left" pane={left} onDropFromOther={(names)=>enqueueCopy(right,left,names)} />
-        <Pane side="right" pane={right} onDropFromOther={(names)=>enqueueCopy(left,right,names)} />
+        {useLocalLeft ? (
+          <LocalPane pane={localLeft} side="left" />
+        ) : (
+          <Pane side="left" pane={left} onDropFromOther={(names)=>enqueueCopy(right,left,names)} />
+        )}
+        <Pane side="right" pane={right} onDropFromOther={(names)=>enqueueCopy(left,right,names)} onDropLocal={async (relPaths)=>{ if (!right.conn||right.conn.status!=='connected') return; await localLeft.uploadTo(right, relPaths); await right.list(right.cwd); }} />
+      </div>
+    </div>
+  );
+}
+
+// ---- Native Local Pane using File System Access API ----
+function useLocalPane(){
+  const [root, setRoot] = React.useState(null); // FileSystemDirectoryHandle
+  const [stack, setStack] = React.useState([]); // path segments
+  const [items, setItems] = React.useState([]);
+  const [sel, setSel] = React.useState(new Set());
+  const [loading, setLoading] = React.useState(false);
+
+  const rootName = React.useMemo(()=> (root ? (root.name || 'Folder') : ''), [root]);
+  const cwd = React.useMemo(()=> (stack.length ? stack.join('/') : '.'), [stack]);
+  const canGoUp = stack.length > 0;
+
+  async function pickRoot(){
+    try { const dir = await window.showDirectoryPicker(); setRoot(dir); setStack([]); setSel(new Set()); return true; } catch { return false; }
+  }
+
+  async function getDirHandle(){
+    if (!root) return null;
+    let h = root; for (const seg of stack){ h = await h.getDirectoryHandle(seg); }
+    return h;
+  }
+
+  async function list(dirRel = '.'){
+    if (!root) return; setLoading(true);
+    try {
+      if (dirRel !== '.' && dirRel) {
+        const parts = String(dirRel).split('/').filter(Boolean); setStack(parts);
+      }
+      const dir = await getDirHandle(); if (!dir) return;
+      const next = [];
+      for await (const [name, handle] of dir.entries()){
+        if (handle.kind === 'directory') next.push({ name, isDirectory: true, type: 'd' });
+        else { try { const file = await handle.getFile(); next.push({ name, isDirectory: false, type: 'f', size: file.size }); } catch { next.push({ name, isDirectory: false, type: 'f' }); }
+        }
+      }
+      next.sort((a,b)=> (a.isDirectory===b.isDirectory) ? a.name.localeCompare(b.name) : (a.isDirectory ? -1 : 1));
+      setItems(next); setSel(new Set());
+    } finally { setLoading(false); }
+  }
+
+  function goUp(){ if (!canGoUp) return; const arr = stack.slice(0,-1); setStack(arr); list(arr.join('/')||'.'); }
+
+  async function open(entry){ if (entry.isDirectory) { const next = [...stack, entry.name]; setStack(next); await list(next.join('/')); } else { const s = new Set([entry.name]); setSel(s); } }
+
+  function onRowClick(e, entry, index){ const ctrl = e.ctrlKey || e.metaKey; const shift = e.shiftKey; if (entry.isDirectory) return; if (shift) { /* simple: ignore for now */ } if (ctrl) { const n=new Set(sel); if(n.has(entry.name)) n.delete(entry.name); else n.add(entry.name); setSel(n); } else { setSel(new Set([entry.name])); } }
+
+  async function resolveFileHandle(rel){ let h = await getDirHandle(); const parts = String(rel).split('/').filter(Boolean); for (let i=0;i<parts.length;i++){ const seg=parts[i]; if (i === parts.length-1) { return h.getFileHandle(seg); } h = await h.getDirectoryHandle(seg); } }
+
+  async function gatherFiles(rel){ // returns [{rel, file}]
+    const out = [];
+    async function walk(dirRel){
+      const dir = await getDirHandle(); // base
+      // navigate to dirRel
+      let h = dir; if (dirRel && dirRel !== '.') { const segs = dirRel.split('/').filter(Boolean); for (const s of segs){ h = await h.getDirectoryHandle(s); } }
+      for await (const [name, handle] of h.entries()){
+        if (handle.kind === 'directory') await walk(dirRel && dirRel !== '.' ? `${dirRel}/${name}` : name);
+        else { const file = await handle.getFile(); out.push({ rel: (dirRel && dirRel !== '.' ? `${dirRel}/${name}` : name), file }); }
+      }
+    }
+    // rel may be file or directory
+    try {
+      const fh = await resolveFileHandle(rel).catch(()=>null);
+      if (fh) { const file = await (await fh).getFile(); out.push({ rel, file }); }
+      else { await walk(rel); }
+    } catch {}
+    return out;
+  }
+
+  async function uploadTo(dstPane, relPaths){
+    for (const rel of relPaths){
+      const files = await gatherFiles(rel);
+      for (const { rel: r, file } of files){
+        // ensure folder on dst
+        const parent = r.split('/').slice(0,-1).join('/');
+        if (parent) { try { await op(dstPane.conn.id, 'mkdir', { path: parent }); } catch(_){} }
+        const fd = new FormData(); fd.append('connectionId', dstPane.conn.id); fd.append('cwd', parent ? parent : dstPane.cwd || '.'); fd.append('file', file, r.split('/').pop());
+        await fetch('/unicon/api/stream/upload', { method:'POST', body: fd });
+      }
+    }
+  }
+
+  return { root, rootName, items, sel, setSel, loading, cwd, canGoUp, pickRoot, list, goUp, open, onRowClick, uploadTo };
+}
+
+function LocalPane({ pane, side }){
+  return (
+    <div className="flex-1 flex flex-col border rounded" onDragOver={(e)=>e.preventDefault()}>
+      <div className="flex items-center gap-2 p-2 border-b">
+        <Input className="flex-1" value={pane.cwd} readOnly />
+        <Button variant="secondary" onClick={()=>pane.goUp()} disabled={!pane.canGoUp}>Up</Button>
+      </div>
+      <div className="flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50"><tr><th className="w-6"></th><th className="text-left px-2 py-1">Name</th><th className="text-left px-2 py-1">Type</th><th className="text-left px-2 py-1">Size</th></tr></thead>
+          <tbody>
+            {pane.items.map((it,i)=>{
+              const checked = pane.sel.has(it.name);
+              return (
+                <tr key={i} className={`border-b ${checked?'bg-blue-50':''}`} draggable={!it.isDirectory} onDragStart={(e)=>{
+                  const names = pane.sel.has(it.name) ? Array.from(pane.sel) : [it.name];
+                  e.dataTransfer.setData('application/x-unicon-local', JSON.stringify({ relPaths: names }));
+                }} onClick={(e)=>pane.onRowClick(e, it, i)}>
+                  <td className="px-2 py-1">{!it.isDirectory && (<input type="checkbox" checked={checked} onChange={(e)=>{ e.stopPropagation(); const s=new Set(pane.sel); if(s.has(it.name)) s.delete(it.name); else s.add(it.name); pane.setSel(s); }} />)}</td>
+                  <td className="px-2 py-1"><button className="hover:underline" onClick={(e)=>{ e.stopPropagation(); pane.open(it); }}>{it.name}</button></td>
+                  <td className="px-2 py-1">{it.isDirectory? 'dir':'file'}</td>
+                  <td className="px-2 py-1">{it.size ?? ''}</td>
+                </tr>
+              );
+            })}
+            {!pane.items.length && (<tr><td className="px-3 py-6 text-center text-gray-500" colSpan={4}>{pane.loading ? 'Loading…' : 'Empty'}</td></tr>)}
+          </tbody>
+        </table>
       </div>
     </div>
   );

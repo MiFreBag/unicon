@@ -527,7 +527,7 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
             </div>
             <div className="flex items-center gap-2 mt-2">
               <LinkIcon size={14} />
-              <input className="flex-1 border rounded px-2 py-1 text-sm" placeholder="https://host/openapi.json" value={openApiUrl} onChange={e=>setOpenApiUrl(e.target.value)} />
+              <Input className="flex-1" placeholder="https://host/openapi.json" value={openApiUrl} onChange={e=>setOpenApiUrl(e.target.value)} />
               <Button size="sm" onClick={loadOpenApiFromUrl}>Load</Button>
               <Button size="sm" variant="secondary" onClick={()=>refreshEndpoints()}>Refresh endpoints</Button>
             </div>
@@ -656,41 +656,11 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-sm font-medium text-gray-700">Response Info</h4>
                   <div className="flex space-x-2">
-                    <button
-                      onClick={() => setShowRawResponse(!showRawResponse)}
-                      className="inline-flex items-center px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
-                    >
-                      {showRawResponse ? <EyeOff size={12} className="mr-1" /> : <Eye size={12} className="mr-1" />}
-                      {showRawResponse ? 'Formatted' : 'Raw'}
-                    </button>
-                    <button
-                      onClick={() => copyToClipboard(formatJson(response.data))}
-                      className="inline-flex items-center px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
-                    >
-                      <Copy size={12} className="mr-1" />
-                      Copy
-                    </button>
-                    <button
-                      onClick={() => copyCurl()}
-                      className="inline-flex items-center px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
-                    >
-                      <Copy size={12} className="mr-1" />
-                      Copy cURL
-                    </button>
-                    <button
-                      onClick={() => copyPowerShell()}
-                      className="inline-flex items-center px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
-                    >
-                      <Copy size={12} className="mr-1" />
-                      Copy PowerShell
-                    </button>
-                    <button
-                      onClick={() => exportHAR()}
-                      className="inline-flex items-center px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
-                    >
-                      <Download size={12} className="mr-1" />
-                      Export HAR
-                    </button>
+                    <Button size="sm" variant="secondary" onClick={() => setShowRawResponse(!showRawResponse)} leftEl={showRawResponse ? <EyeOff size={12} className="mr-1" /> : <Eye size={12} className="mr-1" />}>{showRawResponse ? 'Formatted' : 'Raw'}</Button>
+                    <Button size="sm" variant="secondary" onClick={() => copyToClipboard(formatJson(response.data))} leftEl={<Copy size={12} className="mr-1" />}>Copy</Button>
+                    <Button size="sm" variant="secondary" onClick={() => copyCurl()} leftEl={<Copy size={12} className="mr-1" />}>Copy cURL</Button>
+                    <Button size="sm" variant="secondary" onClick={() => copyPowerShell()} leftEl={<Copy size={12} className="mr-1" />}>Copy PowerShell</Button>
+                    <Button size="sm" variant="secondary" onClick={() => exportHAR()} leftEl={<Download size={12} className="mr-1" />}>Export HAR</Button>
                   </div>
                 </div>
                 

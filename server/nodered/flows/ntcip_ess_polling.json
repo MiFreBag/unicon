@@ -1,0 +1,168 @@
+[
+  {
+    "id": "ess-inject-polling",
+    "type": "inject",
+    "z": "ntcip-ess-flow",
+    "name": "Poll every 60s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "60",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"connectionId\": \"conn-ess-01\", \"operation\": \"readSnapshot\"}",
+    "payloadType": "json",
+    "x": 150,
+    "y": 100,
+    "wires": [
+      [
+        "ess-http-request"
+      ]
+    ]
+  },
+  {
+    "id": "ess-http-request",
+    "type": "http request",
+    "z": "ntcip-ess-flow",
+    "name": "GET ESS Snapshot",
+    "method": "POST",
+    "ret": "txt",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/api/operation",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "authType": "",
+    "senderr": false,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "x": 350,
+    "y": 100,
+    "wires": [
+      [
+        "ess-parse-json"
+      ]
+    ]
+  },
+  {
+    "id": "ess-parse-json",
+    "type": "json",
+    "z": "ntcip-ess-flow",
+    "name": "Parse Response",
+    "property": "payload",
+    "action": "auto",
+    "pretty": false,
+    "x": 550,
+    "y": 100,
+    "wires": [
+      [
+        "ess-extract-values"
+      ]
+    ]
+  },
+  {
+    "id": "ess-extract-values",
+    "type": "function",
+    "z": "ntcip-ess-flow",
+    "name": "Extract Sensor Values",
+    "func": "if (msg.payload.success && msg.payload.data) {\n  const data = msg.payload.data;\n  msg.payload = {\n    timestamp: msg.payload.timestamp,\n    temperature: data.temperature?.value,\n    humidity: data.humidity?.value,\n    windSpeed: data.windSpeed?.value,\n    windDirection: data.windDirection?.value,\n    precipitation: data.precipitation?.value,\n    visibility: data.visibility?.value\n  };\n}\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 750,
+    "y": 100,
+    "wires": [
+      [
+        "ess-debug",
+        "ess-mqtt-publish"
+      ]
+    ]
+  },
+  {
+    "id": "ess-debug",
+    "type": "debug",
+    "z": "ntcip-ess-flow",
+    "name": "Debug Output",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 950,
+    "y": 50,
+    "wires": []
+  },
+  {
+    "id": "ess-mqtt-publish",
+    "type": "mqtt out",
+    "z": "ntcip-ess-flow",
+    "name": "Publish to MQTT",
+    "topic": "transportation/ess/sensors",
+    "qos": 1,
+    "retain": false,
+    "broker": "local-mqtt",
+    "x": 950,
+    "y": 150,
+    "wires": []
+  },
+  {
+    "id": "ess-catch",
+    "type": "catch",
+    "z": "ntcip-ess-flow",
+    "name": "Catch Errors",
+    "scope": null,
+    "uncaught": false,
+    "x": 350,
+    "y": 200,
+    "wires": [
+      [
+        "ess-error-debug"
+      ]
+    ]
+  },
+  {
+    "id": "ess-error-debug",
+    "type": "debug",
+    "z": "ntcip-ess-flow",
+    "name": "Error Log",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "tostatus": false,
+    "complete": "true",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 550,
+    "y": 200,
+    "wires": []
+  },
+  {
+    "id": "local-mqtt",
+    "type": "mqtt-broker",
+    "name": "Local MQTT",
+    "broker": "localhost",
+    "port": "1883",
+    "clientid": "node-red",
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": 60,
+    "cleansession": true,
+    "autoConnect": true,
+    "willTopic": "node-red/status",
+    "willQos": 1,
+    "willRetain": false,
+    "willPayload": "offline",
+    "birthTopic": "node-red/status",
+    "birthQos": 1,
+    "birthPayload": "online"
+  }
+]

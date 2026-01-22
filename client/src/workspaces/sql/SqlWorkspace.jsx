@@ -205,9 +205,9 @@ export default function SqlWorkspace({ connectionId: initialConnectionId }) {
       </div>
 
       <div className="flex items-center gap-2">
-        <button className="px-2 py-1 border rounded text-sm" disabled={!rows.length} onClick={()=>exportCSV(rows, 'query-results.csv')}>Export CSV</button>
-        <button className="px-2 py-1 border rounded text-sm" onClick={()=>saveQuery(sql, paramsText)}>Save Query</button>
-        <button className="px-2 py-1 border rounded text-sm" onClick={()=>loadQuery(setSql, setParamsText)}>Load Last</button>
+        <Button variant="secondary" size="sm" disabled={!rows.length} onClick={()=>exportCSV(rows, 'query-results.csv')}>Export CSV</Button>
+        <Button variant="secondary" size="sm" onClick={()=>saveQuery(sql, paramsText)}>Save Query</Button>
+        <Button variant="secondary" size="sm" onClick={()=>loadQuery(setSql, setParamsText)}>Load Last</Button>
       </div>
 
       {rows.length > 0 && (
@@ -215,9 +215,9 @@ export default function SqlWorkspace({ connectionId: initialConnectionId }) {
           <div className="flex items-center justify-between px-3 py-2 border-b bg-gray-50 text-sm">
             <div>{rows.length} rows</div>
             <div className="flex items-center gap-2">
-              <button className="px-2 py-1 border rounded" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>Prev</button>
+              <Button variant="secondary" size="sm" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>Prev</Button>
               <span>Page {page} / {totalPages}</span>
-              <button className="px-2 py-1 border rounded" disabled={page>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>Next</button>
+              <Button variant="secondary" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>Next</Button>
             </div>
           </div>
           <div className="overflow-auto">
@@ -239,7 +239,7 @@ export default function SqlWorkspace({ connectionId: initialConnectionId }) {
                 <tr>
                   {columns.map(col => (
                     <th key={col} className="px-3 pb-2 border-b">
-                      <input className="w-full border rounded px-2 py-1 text-xs" placeholder="filter" value={filters[col]||''}
+                      <Input className="w-full text-xs" placeholder="filter" value={filters[col]||''}
                              onChange={e=>{ const v=e.target.value; setFilters(prev=>({ ...prev, [col]: v })); setPage(1); }} />
                     </th>
                   ))}

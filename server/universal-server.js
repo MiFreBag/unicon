@@ -20,6 +20,8 @@ let SQLHandler = null;
 const SSHHandler = require('./handlers/ssh_handler');
 const OPCUAHandler = require('./handlers/opcua_handler');
 const GrpcHandler = require('./handlers/grpc_handler');
+const NTCIPESSHandler = require('./handlers/ntcip_ess_handler');
+const NTCIPVMS1203Handler = require('./handlers/ntcip_vms_1203_handler');
 
 const DEFAULT_ALLOWED_ORIGINS = [
   // HTTP dev
@@ -557,6 +559,10 @@ const createApp = (state) => {
         } else if (connection.type === 'grpc') {
           handler = new GrpcHandler(connection.id, connection.config || {});
           await handler.connect();
+        } else if (connection.type === 'soap') {
+          const SoapHandler = require('./handlers/soap_handler');
+          handler = new SoapHandler(connection.id, connection.config || {});
+          await handler.connect();
         } else if (connection.type === 'ftp') {
           const FtpHandler = require('./handlers/ftp_handler');
           handler = new FtpHandler(connection.id, connection.config || {});
@@ -568,6 +574,12 @@ const createApp = (state) => {
         } else if (connection.type === 'localfs') {
           const LocalFSHandler = require('./handlers/localfs_handler');
           handler = new LocalFSHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'ntcip-ess') {
+          handler = new NTCIPESSHandler(connection.id, connection.config || {});
+          await handler.connect();
+        } else if (connection.type === 'ntcip-1203') {
+          handler = new NTCIPVMS1203Handler(connection.id, connection.config || {});
           await handler.connect();
         }
       } catch (e) {
@@ -600,6 +612,12 @@ const createApp = (state) => {
             case 'grpc':
               if (/UNAVAILABLE|No connection established|connect ECONNREFUSED/i.test(message)) return { code: 'GRPC_UNAVAILABLE', hint: 'Verify address and server listening.' };
               return { code: 'GRPC_CONNECT_ERROR', hint: 'Check proto/endpoint and server.' };
+            case 'ntcip-ess':
+            case 'ntcip-1203':
+              if (/timeout/i.test(message)) return { code: 'NTCIP_TIMEOUT', hint: 'SNMP timeout. Check device host/port and SNMP config.' };
+              if (/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH/i.test(message)) return { code: 'NTCIP_NETWORK', hint: 'Cannot reach SNMP device. Verify host, port, and firewall.' };
+              if (/authentication|security|community/i.test(message)) return { code: 'NTCIP_AUTH', hint: 'SNMP authentication failed. Check community string (v2c) or credentials (v3).' };
+              return { code: 'NTCIP_CONNECT_ERROR', hint: 'SNMP connection error. Verify SNMP version, host, and credentials.' };
             default:
               return { code: 'CONNECT_ERROR', hint: 'General connection error.' };
           }
@@ -835,6 +853,21 @@ const createApp = (state) => {
             return res.json(await h.unary(params.method, params.request || {}));
           default:
             return res.status(400).json({ success: false, error: `Unknown gRPC operation: ${operation}` });
+        }
+      }
+
+      // SOAP operations
+      if (connection.type === 'soap' && active.handler) {
+        const h = active.handler;
+        switch (operation) {
+          case 'describe':
+            return res.json(await h.describe());
+          case 'invoke': {
+            const result = await h.invoke(params?.method, params?.args, params?.options);
+            return res.json(result);
+          }
+          default:
+            return res.status(400).json({ success: false, error: `Unknown SOAP operation: ${operation}` });
         }
       }
 
@@ -1107,6 +1140,82 @@ const createApp = (state) => {
         }
       }
 
+      // NTCIP ESS (1204) operations
+      if (connection.type === 'ntcip-ess' && active.handler) {
+        const h = active.handler;
+        switch (operation) {
+          case 'get': {
+            const { oids = [] } = params;
+            if (!Array.isArray(oids) || oids.length === 0) return res.status(400).json({ success:false, error:'oids array required' });
+            const result = await h.get(oids);
+            return res.json({ success:true, data: result });
+          }
+          case 'set': {
+            const { sets = [] } = params;
+            if (!Array.isArray(sets)) return res.status(400).json({ success:false, error:'sets array required' });
+            const result = await h.set(sets);
+            return res.json(result);
+          }
+          case 'bulkGet': {
+            const { oids = [] } = params;
+            const result = await h.bulkGet(oids);
+            return res.json({ success:true, data: result });
+          }
+          case 'getTable': {
+            const { baseOid } = params;
+            if (!baseOid) return res.status(400).json({ success:false, error:'baseOid required' });
+            const result = await h.getTable(baseOid);
+            return res.json({ success:true, data: result });
+          }
+          case 'readSnapshot': {
+            const result = await h.readSnapshot();
+            return res.json(result);
+          }
+          default:
+            return res.status(400).json({ success: false, error: `Unknown NTCIP ESS operation: ${operation}` });
+        }
+      }
+
+      // NTCIP VMS (1203) operations
+      if (connection.type === 'ntcip-1203' && active.handler) {
+        const h = active.handler;
+        switch (operation) {
+          case 'get': {
+            const { oids = [] } = params;
+            if (!Array.isArray(oids) || oids.length === 0) return res.status(400).json({ success:false, error:'oids array required' });
+            const result = await h.get(oids);
+            return res.json({ success:true, data: result });
+          }
+          case 'set': {
+            const { sets = [] } = params;
+            if (!Array.isArray(sets)) return res.status(400).json({ success:false, error:'sets array required' });
+            const result = await h.set(sets);
+            return res.json(result);
+          }
+          case 'bulkGet': {
+            const { oids = [] } = params;
+            const result = await h.bulkGet(oids);
+            return res.json({ success:true, data: result });
+          }
+          case 'getTable': {
+            const { baseOid } = params;
+            if (!baseOid) return res.status(400).json({ success:false, error:'baseOid required' });
+            const result = await h.getTable(baseOid);
+            return res.json({ success:true, data: result });
+          }
+          case 'getStatus': {
+            const result = await h.getStatus();
+            return res.json(result);
+          }
+          case 'setMessage': {
+            const result = await h.setMessage(params);
+            return res.json(result);
+          }
+          default:
+            return res.status(400).json({ success: false, error: `Unknown NTCIP VMS operation: ${operation}` });
+        }
+      }
+
       return res.status(400).json({ success: false, error: `Operation not supported for type ${connection.type}` });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -1356,6 +1465,92 @@ const createApp = (state) => {
       await db.transferWorkspaceOwner(req.params.id, toUserId);
       res.json({ success:true });
     } catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  });
+
+  // Dashboard persistence API (file-based, scoped by workspaceId)
+  const DASHBOARDS_FILE = path.join(DATA_DIR, 'dashboards.json');
+  const loadDashboards = async () => {
+    try {
+      ensureDataStore();
+      if (!fs.existsSync(DASHBOARDS_FILE)) return [];
+      const raw = await fs.promises.readFile(DASHBOARDS_FILE, 'utf8');
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  };
+  const saveDashboards = async (arr) => {
+    ensureDataStore();
+    await fs.promises.writeFile(DASHBOARDS_FILE, JSON.stringify(arr, null, 2), 'utf8');
+  };
+
+  apiRouter.get('/dashboards', MAYBE_VERIFY, async (req, res) => {
+    try {
+      const workspaceId = req.query.workspaceId || null;
+      const list = await loadDashboards();
+      const filtered = workspaceId ? list.filter(d => (d.workspaceId || null) === workspaceId) : list;
+      res.json({ success: true, dashboards: filtered });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+  apiRouter.get('/dashboards/:id', MAYBE_VERIFY, async (req, res) => {
+    try {
+      const list = await loadDashboards();
+      const d = list.find(x => x.id === req.params.id);
+      if (!d) return res.status(404).json({ success: false, error: 'not_found' });
+      res.json({ success: true, dashboard: d });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+  apiRouter.post('/dashboards', MAYBE_VERIFY, async (req, res) => {
+    try {
+      const { name, workspaceId, widgets } = req.body || {};
+      if (!name) return res.status(400).json({ success: false, error: 'name required' });
+      const list = await loadDashboards();
+      const item = { id: uuidv4(), name, workspaceId: workspaceId || null, widgets: widgets || [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      list.push(item);
+      await saveDashboards(list);
+      res.json({ success: true, dashboard: item });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+  apiRouter.put('/dashboards/:id', MAYBE_VERIFY, async (req, res) => {
+    try {
+      const { name, widgets, workspaceId } = req.body || {};
+      const list = await loadDashboards();
+      const idx = list.findIndex(d => d.id === req.params.id);
+      if (idx === -1) return res.status(404).json({ success: false, error: 'not_found' });
+      const cur = list[idx];
+      const updated = { ...cur, name: name ?? cur.name, widgets: widgets ?? cur.widgets, workspaceId: workspaceId !== undefined ? workspaceId : cur.workspaceId, updatedAt: new Date().toISOString() };
+      list[idx] = updated;
+      await saveDashboards(list);
+      res.json({ success: true, dashboard: updated });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+  apiRouter.delete('/dashboards/:id', MAYBE_VERIFY, async (req, res) => {
+    try {
+      const list = await loadDashboards();
+      const next = list.filter(d => d.id !== req.params.id);
+      await saveDashboards(next);
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+  apiRouter.get('/dashboards/export/:id', MAYBE_VERIFY, async (req, res) => {
+    try {
+      const list = await loadDashboards();
+      const d = list.find(x => x.id === req.params.id);
+      if (!d) return res.status(404).json({ success: false, error: 'not_found' });
+      res.setHeader('Content-Disposition', `attachment; filename="dashboard-${d.name || d.id}.json"`);
+      res.json({ success: true, dashboard: d });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+  apiRouter.post('/dashboards/import', MAYBE_VERIFY, async (req, res) => {
+    try {
+      const payload = req.body;
+      const d = payload?.dashboard || payload;
+      if (!d || !d.name) return res.status(400).json({ success: false, error: 'invalid format' });
+      const list = await loadDashboards();
+      const item = { ...d, id: uuidv4(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      list.push(item);
+      await saveDashboards(list);
+      res.json({ success: true, dashboard: item });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
 
   // Templates library API (file-based)
@@ -1802,16 +1997,28 @@ const createApp = (state) => {
       const dir = path.join(__dirname, 'nodered', 'logs');
       try { fs.mkdirSync(dir, { recursive: true }); } catch(_){}
       const files = (fs.readdirSync(dir) || []).filter(f => /\.csv$/i.test(f));
-      const { connectionId } = req.query || {};
-      const m = [];
+      const { connectionId, datasetId, q } = req.query || {};
+      const items = [];
+      const datasets = new Set();
       for (const name of files) {
         if (connectionId && !name.includes(connectionId)) continue;
+        const parts = name.split('-');
+        const ds = parts[0] || null;
+        const conn = parts.length > 1 ? parts[1] : null;
+        if (datasetId && ds !== datasetId) continue;
+        if (q && !name.toLowerCase().includes(String(q).toLowerCase())) continue;
         const p = path.join(dir, name);
         let st; try { st = fs.statSync(p); } catch { continue; }
-        m.push({ name, size: st.size, mtime: st.mtimeMs });
+        if (ds) datasets.add(ds);
+        items.push({ name, size: st.size, mtime: st.mtimeMs, datasetId: ds, connectionId: conn });
       }
-      m.sort((a,b)=> b.mtime - a.mtime);
-      res.json({ success:true, files: m });
+      items.sort((a,b)=> b.mtime - a.mtime);
+      const page = Math.max(1, parseInt(req.query.page||'1',10));
+      const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize||'10',10)));
+      const total = items.length;
+      const start = (page-1) * pageSize;
+      const slice = items.slice(start, start + pageSize);
+      res.json({ success:true, files: slice, total, page, pageSize, datasets: Array.from(datasets).sort() });
     } catch (e) { res.status(500).json({ success:false, error: e.message }); }
   });
   apiRouter.get('/opcua/logs/download', async (req, res) => {

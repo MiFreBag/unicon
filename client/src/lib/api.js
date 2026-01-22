@@ -3,10 +3,10 @@ const API_BASE = '/unicon/api';
 
 import { getToken } from './auth';
 
-export async function apiPost(path, body) {
+export async function apiPost(path, body, method = 'POST') {
   const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
+    method,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})

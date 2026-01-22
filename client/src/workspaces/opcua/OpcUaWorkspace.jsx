@@ -23,6 +23,12 @@ export default function OpcUaWorkspace({ connection }) {
   const [samplingInterval, setSamplingInterval] = useState(1000);
   const [logPath, setLogPath] = useState('');
   const [logList, setLogList] = useState([]);
+  const [logQ, setLogQ] = useState('');
+  const [logDataset, setLogDataset] = useState('');
+  const [logDatasets, setLogDatasets] = useState([]);
+  const [logPage, setLogPage] = useState(1);
+  const [logPageSize, setLogPageSize] = useState(10);
+  const [logTotal, setLogTotal] = useState(0);
   const canvasRef = useRef(null);
   const [points, setPoints] = useState([]); // {t: epochMs, v: number}
   const maxPoints = 200;
@@ -322,6 +328,25 @@ export default function OpcUaWorkspace({ connection }) {
     if (runIdRef.current === runId) setRunning(false);
   };
 
+  // Auto-refresh logs when paging/search/filter changes
+  useEffect(()=>{
+    (async()=>{
+      try {
+        const qs = new URLSearchParams();
+        if (connection?.id) qs.set('connectionId', connection.id);
+        if (logQ) qs.set('q', logQ);
+        if (logDataset) qs.set('datasetId', logDataset);
+        qs.set('page', String(logPage));
+        qs.set('pageSize', String(logPageSize));
+        const r = await fetch(`/unicon/api/opcua/logs?${qs.toString()}`);
+        const j = await r.json();
+        setLogList(Array.isArray(j?.files)? j.files : []);
+        setLogTotal(parseInt(j?.total||0,10));
+        setLogDatasets(Array.isArray(j?.datasets)? j.datasets : []);
+      } catch(_){}
+    })();
+  }, [connection?.id, logQ, logDataset, logPage, logPageSize]);
+
   return (
     <div className="h-full flex flex-col space-y-4">
       <div className="flex items-center justify-between">
@@ -594,13 +619,34 @@ export default function OpcUaWorkspace({ connection }) {
           <div className="flex items-center justify-between mb-2">
             <h4 className="font-medium">Logs</h4>
             <div className="flex items-center gap-2 text-sm">
+              <input className="px-2 py-1 border rounded text-sm" placeholder="Search" value={logQ} onChange={e=>setLogQ(e.target.value)} />
+              <select className="px-2 py-1 border rounded text-sm" value={logDataset} onChange={e=>{ setLogDataset(e.target.value); setLogPage(1); }}>
+                <option value="">All datasets</option>
+                {logDatasets.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <select className="px-2 py-1 border rounded text-sm" value={logPageSize} onChange={e=>{ setLogPageSize(parseInt(e.target.value,10)); setLogPage(1); }}>
+                {[10,20,50,100].map(n => <option key={n} value={n}>{n}/page</option>)}
+              </select>
               <button className="px-2 py-1 border rounded" onClick={async()=>{
                 try {
-                  const r = await fetch(`/unicon/api/opcua/logs?connectionId=${encodeURIComponent(connection?.id||'')}`);
+                  const qs = new URLSearchParams();
+                  if (connection?.id) qs.set('connectionId', connection.id);
+                  if (logQ) qs.set('q', logQ);
+                  if (logDataset) qs.set('datasetId', logDataset);
+                  qs.set('page', String(logPage));
+                  qs.set('pageSize', String(logPageSize));
+                  const r = await fetch(`/unicon/api/opcua/logs?${qs.toString()}`);
                   const j = await r.json();
                   setLogList(Array.isArray(j?.files)? j.files : []);
+                  setLogTotal(parseInt(j?.total||0,10));
+                  setLogDatasets(Array.isArray(j?.datasets)? j.datasets : []);
                 } catch(_){}
               }}>Refresh</button>
+              <div className="flex items-center gap-1">
+                <button className="px-2 py-1 border rounded" onClick={()=>{ if (logPage>1) setLogPage(p=>p-1); }} disabled={logPage<=1}>Prev</button>
+                <span className="text-xs text-gray-600">{logPage}</span>
+                <button className="px-2 py-1 border rounded" onClick={()=>{ const maxPage = Math.max(1, Math.ceil(logTotal / logPageSize)); if (logPage<maxPage) setLogPage(p=>p+1); }} disabled={logPage>=Math.max(1, Math.ceil(logTotal / logPageSize))}>Next</button>
+              </div>
             </div>
           </div>
           <div className="max-h-64 overflow-y-auto text-sm">
@@ -623,6 +669,7 @@ export default function OpcUaWorkspace({ connection }) {
               <div className="text-gray-500 text-sm">No logs found</div>
             )}
           </div>
+          <div className="mt-2 text-[11px] text-gray-600">Total: {logTotal}</div>
         </div>
 
         {/* Batch Read (Saved nodes) – hidden in simple mode */}

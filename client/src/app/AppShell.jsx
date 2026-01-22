@@ -26,6 +26,7 @@ import ResetPassword from '../auth/ResetPassword.jsx';
 export default function AppShell() {
   // Registry of workspaces available to open in tabs
   const registry = useMemo(() => ({
+    dashboard: { title: 'Dashboard', icon: Layers, component: React.lazy(() => import('../features/dashboard/Dashboard.jsx')) },
     connections: { title: 'Connections', icon: List, component: ConnectionList },
     examples: { title: 'Examples', icon: Globe, component: React.lazy(() => import('../features/examples/ConnectionsExamples.jsx')) },
     rest: { title: 'REST Client', icon: Globe, component: RestWorkspace },

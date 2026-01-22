@@ -19,6 +19,7 @@ export default function Sidebar({ onOpenWorkspace, activeTabKind }) {
     <aside className="w-64 border-r border-gray-200 bg-white p-4 space-y-4">
       <div className="px-2 text-xs uppercase text-gray-500 tracking-wide">General</div>
       <div className="space-y-1">
+        <Item iconName="layout" label="Dashboard" onClick={() => onOpenWorkspace('dashboard')} />
         <Item iconName="list" label="Connections" onClick={() => onOpenWorkspace('connections')} />
         <Item iconName="globe" label="Examples" onClick={() => onOpenWorkspace('examples')} />
       </div>
