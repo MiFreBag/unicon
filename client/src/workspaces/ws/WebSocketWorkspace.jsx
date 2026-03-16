@@ -71,7 +71,7 @@ export default function WebSocketWorkspace({ connection, openTab }) {
       <div className="flex items-center gap-3 text-sm">
         <div>
           <span className="mr-2">Quick pick:</span>
-          <select className="border rounded px-2 py-1" onChange={async (e)=>{
+          <select className="input input-sm w-auto" onChange={async (e)=>{
             const idx = Number(e.target.value); if (isNaN(idx)) return;
             const ex = EXAMPLE_PRESETS.ws[idx];
             const res = await createConnection({ name: `${ex.name} (WS)`, type: 'websocket', config: { url: ex.url } });

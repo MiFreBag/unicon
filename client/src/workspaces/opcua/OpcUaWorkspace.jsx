@@ -359,7 +359,7 @@ export default function OpcUaWorkspace({ connection }) {
           <Button variant="secondary" onClick={onConnect} disabled={status==='connected' || isLoading} leftEl={<Play size={16} className="mr-2" />}>Connect</Button>
           <Button variant="secondary" onClick={onDisconnect} disabled={status!=='connected' || isLoading} leftEl={<Square size={16} className="mr-2" />}>Disconnect</Button>
           <div className="flex items-center gap-2">
-            <input type="number" min="50" step="50" value={samplingInterval} onChange={e=>setSamplingInterval(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm" title="Sampling interval (ms)" />
+            <input type="number" min="50" step="50" value={samplingInterval} onChange={e=>setSamplingInterval(e.target.value)} className="input input-sm w-24" title="Sampling interval (ms)" />
             <Button variant="secondary" onClick={startMonitor} disabled={isLoading || status!=='connected' || !selectedNode || !!monitorId}>Start Monitor</Button>
             <Button variant="secondary" onClick={stopMonitor} disabled={!monitorId}>Stop Monitor</Button>
             <Button variant="secondary" onClick={async()=>{ if(!monitorId) return; try { const r = await fetch('/unicon/api/opcua/monitor/stop-rotate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ monitorId }) }); const j = await r.json(); if (j?.success) { setMonitorId(null); window.dispatchEvent(new CustomEvent('unicon-log', { detail: { connectionId: connection.id, kind:'info', message:`CSV rotated ${j.rotatedPath||''}` } })); } else { alert('Rotate failed'); } } catch(e){ alert(e.message||'Rotate failed'); } }} disabled={!monitorId}>Stop + Rotate CSV</Button>
@@ -387,8 +387,8 @@ export default function OpcUaWorkspace({ connection }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="px-2 py-0.5 border rounded text-xs" onClick={()=>setSelectedNode({ nodeId: s.nodeId, displayName: s.label || s.displayName || s.nodeId })}>Use</button>
-                    <button className="px-2 py-0.5 border rounded text-xs" onClick={()=>removeSaved(s.nodeId)}>Remove</button>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>setSelectedNode({ nodeId: s.nodeId, displayName: s.label || s.displayName || s.nodeId })}>Use</button>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>removeSaved(s.nodeId)}>Remove</button>
                   </div>
                 </div>
               ))}
@@ -396,13 +396,13 @@ export default function OpcUaWorkspace({ connection }) {
           ) : (
             <div className="text-sm text-gray-500">No saved nodes yet.</div>
           )}
-          <div className="mt-2 flex items-center gap-2 text-sm">
-            <button className="px-2 py-1 border rounded" onClick={()=>{
+            <div className="mt-2 flex items-center gap-2 text-sm">
+              <button className="btn btn-secondary btn-sm" onClick={()=>{
               const list = Array.from(selectedSaved);
               if (!list.length) { alert('Select nodes first'); return; }
               setSeq(prev => [...prev, ...list.map(n => ({ nodeId:n, dataType:'Auto', value:'', delayMs:1000 }))]);
             }}>Add selected to sequence</button>
-            <button className="px-2 py-1 border rounded" onClick={()=>setSelectedSaved(new Set())}>Clear selection</button>
+            <button className="btn btn-secondary btn-sm" onClick={()=>setSelectedSaved(new Set())}>Clear selection</button>
           </div>
         </div>
         )}
@@ -414,29 +414,29 @@ export default function OpcUaWorkspace({ connection }) {
             <h4 className="font-medium">Write Sequence</h4>
             <div className="flex items-center gap-2 text-sm">
               <label className="flex items-center gap-1">Start at
-                <input type="datetime-local" className="border rounded px-2 py-1" value={startAt} onChange={e=>setStartAt(e.target.value)} />
+                <input type="datetime-local" className="input input-sm" value={startAt} onChange={e=>setStartAt(e.target.value)} />
               </label>
               <label className="flex items-center gap-1">Repeat
-                <input type="number" min="1" className="border rounded px-2 py-1 w-20" value={repeatCount} onChange={e=>setRepeatCount(e.target.value)} />
+                <input type="number" min="1" className="input input-sm w-20" value={repeatCount} onChange={e=>setRepeatCount(e.target.value)} />
               </label>
               <label className="flex items-center gap-1">Pause
-                <input type="number" min="0" className="border rounded px-2 py-1 w-24" value={pauseBetweenRepeats} onChange={e=>setPauseBetweenRepeats(e.target.value)} /> ms
+                <input type="number" min="0" className="input input-sm w-24" value={pauseBetweenRepeats} onChange={e=>setPauseBetweenRepeats(e.target.value)} /> ms
               </label>
               <label className="flex items-center gap-1">
                 <input type="checkbox" checked={loop} onChange={e=>setLoop(e.target.checked)} /> Loop
               </label>
-              <button className="px-2 py-1 border rounded" onClick={()=>addStep()}>Add step</button>
-              <button className="px-2 py-1 border rounded" onClick={()=>dryRun(runSelectedOnly)} title="Simulate without writing">Dry run</button>
-              <button className="px-2 py-1 border rounded" onClick={()=>validateSequence(runSelectedOnly)} title="Read nodes once to pre-check">Validate</button>
-              <button className="px-2 py-1 border rounded" onClick={()=>{ try { const blob = new Blob([JSON.stringify(seq, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='opcua-sequence.json'; a.click(); URL.revokeObjectURL(a.href); } catch(e){ alert('Export failed'); } }}>Export</button>
-              <button className="px-2 py-1 border rounded" onClick={()=>importRef.current?.click()}>Import</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>addStep()}>Add step</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>dryRun(runSelectedOnly)} title="Simulate without writing">Dry run</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>validateSequence(runSelectedOnly)} title="Read nodes once to pre-check">Validate</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{ try { const blob = new Blob([JSON.stringify(seq, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='opcua-sequence.json'; a.click(); URL.revokeObjectURL(a.href); } catch(e){ alert('Export failed'); } }}>Export</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>importRef.current?.click()}>Import</button>
               <input ref={importRef} type="file" accept="application/json" className="hidden" onChange={async (e)=>{ const f=e.target.files?.[0]; if(!f) return; try { const txt=await f.text(); const arr=JSON.parse(txt); if(Array.isArray(arr)) setSeq(arr.map(x=>({ nodeId: String(x.nodeId||''), selected: !!x.selected, dataType: x.dataType||'Auto', value: x.value ?? '', delayMs: parseInt(x.delayMs||0,10), durationMs: parseInt(x.durationMs||0,10), jitterMs: parseInt(x.jitterMs||0,10), revert: !!x.revert, description: x.description||'' }))); } catch(err){ alert('Import failed: '+(err.message||'error')); } finally { e.target.value=''; } }} />
               <label className="flex items-center gap-1">
                 <input type="checkbox" checked={runSelectedOnly} onChange={e=>setRunSelectedOnly(e.target.checked)} /> Run selected only
               </label>
-              <button className="px-2 py-1 border rounded" onClick={()=>{ const prev=runSelectedOnly; setRunSelectedOnly(false); runSequence().finally(()=>setRunSelectedOnly(prev)); }} disabled={running || status!=='connected'}>Run all</button>
-              <button className="px-2 py-1 border rounded" onClick={()=>{ const prev=runSelectedOnly; setRunSelectedOnly(true); runSequence().finally(()=>setRunSelectedOnly(prev)); }} disabled={running || status!=='connected'}>Run selected</button>
-              <button className="px-2 py-1 border rounded" onClick={stopSequence} disabled={!running}>Stop</button>
+              <button className="btn btn-primary btn-sm" onClick={()=>{ const prev=runSelectedOnly; setRunSelectedOnly(false); runSequence().finally(()=>setRunSelectedOnly(prev)); }} disabled={running || status!=='connected'}>Run all</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{ const prev=runSelectedOnly; setRunSelectedOnly(true); runSequence().finally(()=>setRunSelectedOnly(prev)); }} disabled={running || status!=='connected'}>Run selected</button>
+              <button className="btn btn-secondary btn-sm" onClick={stopSequence} disabled={!running}>Stop</button>
             </div>
           </div>
           {seq.length ? (
@@ -463,37 +463,37 @@ export default function OpcUaWorkspace({ connection }) {
                         <input type="checkbox" checked={!!st.selected} onChange={e=>updateStep(i,'selected',e.target.checked)} />
                       </td>
                       <td className="px-2 py-1">
-                        <select className="border rounded px-2 py-1 font-mono text-xs min-w-[280px]" value={st.nodeId} onChange={e=>updateStep(i,'nodeId',e.target.value)}>
+                        <select className="input input-sm font-mono text-xs min-w-[280px]" value={st.nodeId} onChange={e=>updateStep(i,'nodeId',e.target.value)}>
                           {[...new Set([st.nodeId, selectedNode?.nodeId, ...saved.map(s=>s.nodeId)].filter(Boolean))].map(n => (
                             <option key={n} value={n}>{n}</option>
                           ))}
                         </select>
                       </td>
                       <td className="px-2 py-1">
-                        <select className="border rounded px-2 py-1" value={st.dataType||'Auto'} onChange={e=>updateStep(i,'dataType',e.target.value)}>
+                        <select className="input input-sm" value={st.dataType||'Auto'} onChange={e=>updateStep(i,'dataType',e.target.value)}>
                           {['Auto','Boolean','Int32','Float','Double','String','JSON'].map(dt => <option key={dt} value={dt}>{dt}</option>)}
                         </select>
                       </td>
                       <td className="px-2 py-1">
-                        <input className="border rounded px-2 py-1 w-full font-mono text-xs" value={st.value||''} onChange={e=>updateStep(i,'value',e.target.value)} placeholder="value" />
+                        <input className="input input-sm w-full font-mono text-xs" value={st.value||''} onChange={e=>updateStep(i,'value',e.target.value)} placeholder="value" />
                       </td>
                       <td className="px-2 py-1">
-                        <input type="number" className="border rounded px-2 py-1 w-24" value={st.delayMs||0} onChange={e=>updateStep(i,'delayMs',e.target.value)} />
+                        <input type="number" className="input input-sm w-24" value={st.delayMs||0} onChange={e=>updateStep(i,'delayMs',e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
-                        <input type="number" className="border rounded px-2 py-1 w-24" value={st.jitterMs||0} onChange={e=>updateStep(i,'jitterMs',e.target.value)} />
+                        <input type="number" className="input input-sm w-24" value={st.jitterMs||0} onChange={e=>updateStep(i,'jitterMs',e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
-                        <input type="number" className="border rounded px-2 py-1 w-24" value={st.durationMs||0} onChange={e=>updateStep(i,'durationMs',e.target.value)} />
+                        <input type="number" className="input input-sm w-24" value={st.durationMs||0} onChange={e=>updateStep(i,'durationMs',e.target.value)} />
                       </td>
                       <td className="px-2 py-1 text-center">
                         <input type="checkbox" checked={!!st.revert} onChange={e=>updateStep(i,'revert',e.target.checked)} />
                       </td>
                       <td className="px-2 py-1">
-                        <input className="border rounded px-2 py-1 w-full text-xs" value={st.description||''} onChange={e=>updateStep(i,'description',e.target.value)} placeholder="description" />
+                        <input className="input input-sm w-full text-xs" value={st.description||''} onChange={e=>updateStep(i,'description',e.target.value)} placeholder="description" />
                       </td>
                       <td className="px-2 py-1 text-right">
-                        <button className="px-2 py-0.5 border rounded text-xs" onClick={()=>removeStep(i)}>Remove</button>
+                        <button className="btn btn-secondary btn-sm" onClick={()=>removeStep(i)}>Remove</button>
                       </td>
                     </tr>
                   ))}
@@ -597,7 +597,7 @@ export default function OpcUaWorkspace({ connection }) {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Data Type</label>
-                <select className="border rounded px-2 py-1 text-sm" value={dataType} onChange={e=>setDataType(e.target.value)}>
+                <select className="input input-sm" value={dataType} onChange={e=>setDataType(e.target.value)}>
                   {['Auto','Boolean','Int32','Float','Double','String','JSON'].map(dt => <option key={dt} value={dt}>{dt}</option>)}
                 </select>
               </div>
@@ -619,15 +619,15 @@ export default function OpcUaWorkspace({ connection }) {
           <div className="flex items-center justify-between mb-2">
             <h4 className="font-medium">Logs</h4>
             <div className="flex items-center gap-2 text-sm">
-              <input className="px-2 py-1 border rounded text-sm" placeholder="Search" value={logQ} onChange={e=>setLogQ(e.target.value)} />
-              <select className="px-2 py-1 border rounded text-sm" value={logDataset} onChange={e=>{ setLogDataset(e.target.value); setLogPage(1); }}>
+              <input className="input input-sm w-auto" placeholder="Search" value={logQ} onChange={e=>setLogQ(e.target.value)} />
+              <select className="input input-sm w-auto" value={logDataset} onChange={e=>{ setLogDataset(e.target.value); setLogPage(1); }}>
                 <option value="">All datasets</option>
                 {logDatasets.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
-              <select className="px-2 py-1 border rounded text-sm" value={logPageSize} onChange={e=>{ setLogPageSize(parseInt(e.target.value,10)); setLogPage(1); }}>
+              <select className="input input-sm w-auto" value={logPageSize} onChange={e=>{ setLogPageSize(parseInt(e.target.value,10)); setLogPage(1); }}>
                 {[10,20,50,100].map(n => <option key={n} value={n}>{n}/page</option>)}
               </select>
-              <button className="px-2 py-1 border rounded" onClick={async()=>{
+              <button className="btn btn-secondary btn-sm" onClick={async()=>{
                 try {
                   const qs = new URLSearchParams();
                   if (connection?.id) qs.set('connectionId', connection.id);
@@ -643,9 +643,9 @@ export default function OpcUaWorkspace({ connection }) {
                 } catch(_){}
               }}>Refresh</button>
               <div className="flex items-center gap-1">
-                <button className="px-2 py-1 border rounded" onClick={()=>{ if (logPage>1) setLogPage(p=>p-1); }} disabled={logPage<=1}>Prev</button>
+                <button className="btn btn-secondary btn-sm" onClick={()=>{ if (logPage>1) setLogPage(p=>p-1); }} disabled={logPage<=1}>Prev</button>
                 <span className="text-xs text-gray-600">{logPage}</span>
-                <button className="px-2 py-1 border rounded" onClick={()=>{ const maxPage = Math.max(1, Math.ceil(logTotal / logPageSize)); if (logPage<maxPage) setLogPage(p=>p+1); }} disabled={logPage>=Math.max(1, Math.ceil(logTotal / logPageSize))}>Next</button>
+                <button className="btn btn-secondary btn-sm" onClick={()=>{ const maxPage = Math.max(1, Math.ceil(logTotal / logPageSize)); if (logPage<maxPage) setLogPage(p=>p+1); }} disabled={logPage>=Math.max(1, Math.ceil(logTotal / logPageSize))}>Next</button>
               </div>
             </div>
           </div>
@@ -674,8 +674,8 @@ export default function OpcUaWorkspace({ connection }) {
                         <td className="px-2 py-1">{(f.size/1024).toFixed(1)} KB</td>
                         <td className="px-2 py-1">{new Date(f.mtime).toLocaleString()}</td>
                         <td className="px-2 py-1 text-right">
-                          <button className="px-2 py-0.5 border rounded text-xs" onClick={()=>window.open(`/unicon/api/opcua/logs/download?file=${encodeURIComponent(f.name)}`,'_blank')}>Download</button>
-                          <button className="ml-2 px-2 py-0.5 border rounded text-xs" onClick={async()=>{ if(!confirm('Delete log?')) return; try { await fetch('/unicon/api/opcua/logs', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ file: f.name }) }); setLogList(prev => prev.filter(x=>x.name!==f.name)); } catch(_){} }}>Delete</button>
+                          <button className="btn btn-secondary btn-sm" onClick={()=>window.open(`/unicon/api/opcua/logs/download?file=${encodeURIComponent(f.name)}`,'_blank')}>Download</button>
+                          <button className="ml-2 btn btn-secondary btn-sm" onClick={async()=>{ if(!confirm('Delete log?')) return; try { await fetch('/unicon/api/opcua/logs', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ file: f.name }) }); setLogList(prev => prev.filter(x=>x.name!==f.name)); } catch(_){} }}>Delete</button>
                         </td>
                       </tr>
                     ))}

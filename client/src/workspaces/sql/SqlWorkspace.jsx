@@ -158,7 +158,7 @@ export default function SqlWorkspace({ connectionId: initialConnectionId }) {
       <div className="flex items-end gap-3">
         <div className="text-sm text-gray-700">
           Quick pick:
-          <select className="ml-2 border rounded px-2 py-1" onChange={async (e)=>{
+          <select className="ml-2 input input-sm w-auto" onChange={async (e)=>{
             const idx = Number(e.target.value); if (isNaN(idx)) return;
             const ex = EXAMPLE_PRESETS.sql[idx];
             const res = await createConnection({ name: ex.name, type: 'sql', config: ex.config });
@@ -171,7 +171,7 @@ export default function SqlWorkspace({ connectionId: initialConnectionId }) {
         <ConnectionHeader connections={connections} selectedId={selectedId} status={status} />
         <div>
           <label className="block text-sm text-gray-600">SQL Connection</label>
-          <select className="border border-swarco-grey-400 rounded px-3 py-2 min-w-[16rem] focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600" value={selectedId}
+          <select className="input input-md min-w-[16rem]" value={selectedId}
                   onChange={e => { setSelectedId(e.target.value); const cfg = sqlConnections.find(c=>c.id===e.target.value)?.config; setDriver(cfg?.driver||'sqlite'); }}>
             {sqlConnections.map(c => (
               <option key={c.id} value={c.id}>{c.name} ({c.config?.driver || 'sqlite'})</option>
@@ -190,11 +190,11 @@ export default function SqlWorkspace({ connectionId: initialConnectionId }) {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <label className="block text-sm text-gray-600">SQL</label>
-          <textarea rows={6} className="w-full border border-swarco-grey-400 rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600" value={sql} onChange={e=>setSql(e.target.value)} />
+          <textarea rows={6} className="input input-md w-full font-mono text-sm" value={sql} onChange={e=>setSql(e.target.value)} />
         </div>
         <div className="space-y-2">
           <label className="block text-sm text-gray-600">Params (JSON array)</label>
-          <textarea rows={6} className="w-full border border-swarco-grey-400 rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600" value={paramsText} onChange={e=>setParamsText(e.target.value)} />
+          <textarea rows={6} className="input input-md w-full font-mono text-sm" value={paramsText} onChange={e=>setParamsText(e.target.value)} />
         </div>
       </div>
 
