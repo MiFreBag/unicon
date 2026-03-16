@@ -371,7 +371,7 @@ useEffect(() => {
       <div className="flex items-end gap-3">
         <div className="text-sm text-gray-700">
           Quick pick:
-          <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const v=e.target.value; e.target.value=''; quickCreate(v); }}>
+          <select className="ml-2 input input-sm w-auto" onChange={(e)=>{ const v=e.target.value; e.target.value=''; quickCreate(v); }}>
             <option>Pick…</option>
             <option value="ssh_local">SSH localhost (22)</option>
           </select>
@@ -379,7 +379,7 @@ useEffect(() => {
         <ConnectionHeader connections={connections} selectedId={selectedId} status={status} />
         <div>
           <label className="block text-sm text-gray-600">SSH Connection</label>
-          <select className="border rounded px-3 py-2 min-w-[16rem]" value={selectedId} onChange={e => setSelectedId(e.target.value)}>
+          <select className="input input-md min-w-[16rem]" value={selectedId} onChange={e => setSelectedId(e.target.value)}>
             {sshConnections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.config?.host})</option>)}
           </select>
         </div>
@@ -401,8 +401,8 @@ useEffect(() => {
         <div className="flex items-center justify-between mb-2">
           <div className="text-sm font-medium">Log</div>
           <div className="flex items-center gap-2">
-            <button className="px-2 py-1 border rounded text-sm" onClick={()=>setLogs([])}>Clear</button>
-            <button className="px-2 py-1 border rounded text-sm" onClick={exportLogs}>Export</button>
+            <button className="btn btn-secondary btn-sm" onClick={()=>setLogs([])}>Clear</button>
+            <button className="btn btn-secondary btn-sm" onClick={exportLogs}>Export</button>
           </div>
         </div>
         <div className="max-h-48 overflow-auto text-xs font-mono leading-5">
@@ -410,7 +410,7 @@ useEffect(() => {
             <div className="text-gray-500">No log entries yet.</div>
           ) : (
             logs.slice().reverse().map((l,i)=> (
-              <div key={i} className={l.level==='error'?'text-red-700':(l.level==='warn'?'text-amber-700':'text-gray-800')}>
+              <div key={i} className={l.level==='error'?'text-red-700':(l.level==='warn'?'text-yellow-700':'text-gray-800')}>
                 <span className="opacity-60 mr-2">{new Date(l.ts).toLocaleTimeString()}</span>
                 {l.message}
                 {l.code || l.hint ? (<span className="opacity-80"> {l.code ? `[${l.code}]` : ''}{l.hint ? ` – ${l.hint}` : ''}</span>) : null}
@@ -428,7 +428,7 @@ useEffect(() => {
               <Input value={sftpPath} onChange={e => setSftpPath(e.target.value)} />
             </div>
             <Button variant="secondary" disabled={status!=='connected'} onClick={listSftp}>List</Button>
-            <label className="px-3 py-1.5 border rounded cursor-pointer">
+            <label className="btn btn-secondary btn-sm cursor-pointer">
               Upload
               <input type="file" className="hidden" onChange={e => e.target.files && e.target.files[0] && uploadFile(e.target.files[0])} />
             </label>
@@ -437,7 +437,7 @@ useEffect(() => {
             {entries.map((e, i) => (
               <div key={i} className="flex items-center justify-between border-b py-1">
                 <span className="font-mono">{e.filename}</span>
-                <button className="px-2 py-0.5 text-xs border rounded" onClick={() => downloadFile(e.filename)}>Download</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => downloadFile(e.filename)}>Download</button>
               </div>
             ))}
             {entries.length === 0 && <div className="text-gray-500">No entries</div>}

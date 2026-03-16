@@ -144,7 +144,7 @@ export default function FtpWorkspace({ connection, protocol: protocolProp, openT
       <div className="flex items-center gap-2">
         <div className="text-sm text-gray-700">
           Quick pick:
-          <select className="ml-2 border rounded px-2 py-1" onChange={async (e)=>{
+          <select className="ml-2 input input-sm w-auto" onChange={async (e)=>{
             const v = e.target.value; e.target.value=''; if (!v) return;
             if (v==='ftp_local') {
               const res = await createConnection({ name: 'FTP localhost', type: 'ftp', config: { host:'localhost', port:21, secure:false } });
@@ -162,7 +162,10 @@ export default function FtpWorkspace({ connection, protocol: protocolProp, openT
         <Button variant="secondary" onClick={goUp}>Up</Button>
         <Button variant="secondary" onClick={()=>list(cwd)}>Refresh</Button>
         <Input value={cwd} onChange={e=>setCwd(e.target.value)} className="flex-1" />
-        <input type="file" multiple onChange={onUpload} />
+        <label className="btn btn-secondary btn-sm cursor-pointer">
+          Upload
+          <input type="file" multiple className="hidden" onChange={onUpload} />
+        </label>
         <Button onClick={onDownload} disabled={!selectedNames.size}>Download</Button>
         <Button variant="secondary" onClick={onDelete} disabled={!selectedNames.size}>Delete</Button>
         <Button variant="secondary" onClick={onMkdir}>Mkdir</Button>
@@ -204,12 +207,12 @@ export default function FtpWorkspace({ connection, protocol: protocolProp, openT
       </div>
 
       <Modal open={editor.open} title={`Edit ${editor.path}`} onClose={()=> setEditor({ open:false, path:'', content:'', saving:false })}
-        footer={<>
+        footer={<div className="button-bar horizontal">
           <Button variant="secondary" onClick={()=> setEditor({ open:false, path:'', content:'', saving:false })}>Cancel</Button>
           <Button onClick={saveEditor} disabled={editor.saving}>{editor.saving ? 'Saving…' : 'Save'}</Button>
-        </>}
+        </div>}
       >
-        <textarea className="w-full h-80 border rounded p-2 font-mono text-sm" value={editor.content} onChange={e=> setEditor(p=> ({...p, content: e.target.value}))} />
+        <textarea className="input input-md w-full h-80 font-mono text-sm" value={editor.content} onChange={e=> setEditor(p=> ({...p, content: e.target.value}))} />
       </Modal>
     </div>
   )

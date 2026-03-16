@@ -61,7 +61,7 @@ export default function GrpcWorkspace({ connectionId: initialConnectionId, openT
       <h3 className="text-lg font-medium">gRPC Workspace</h3>
       <div className="text-sm text-gray-700 mb-2">
         Quick pick:
-        <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const idx=Number(e.target.value); if (isNaN(idx)) return; applyPreset(PRESETS[idx]); e.target.value=''; }}>
+        <select className="ml-2 input input-sm w-auto" onChange={(e)=>{ const idx=Number(e.target.value); if (isNaN(idx)) return; applyPreset(PRESETS[idx]); e.target.value=''; }}>
           <option>Pick…</option>
           {PRESETS.map((p,i)=>(<option key={p.label} value={i}>{p.label}</option>))}
         </select>
@@ -85,7 +85,7 @@ export default function GrpcWorkspace({ connectionId: initialConnectionId, openT
       </div>
       <div>
         <label className="block text-sm font-medium text-swarco-grey-900 mb-1">Payload (JSON)</label>
-        <textarea className="w-full border border-swarco-grey-400 rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-swarco-blue-200 focus:border-swarco-blue-600" rows={6} value={payload} onChange={e=>setPayload(e.target.value)} />
+        <textarea className="input input-md w-full font-mono text-sm" rows={6} value={payload} onChange={e=>setPayload(e.target.value)} />
       </div>
       <Button onClick={callUnary}>Call Unary</Button>
       {response && (
