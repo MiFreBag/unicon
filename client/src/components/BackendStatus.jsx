@@ -59,16 +59,16 @@ export default function BackendStatus() {
   };
 
   return (
-    <div className="bg-amber-50 border-b border-amber-200 text-amber-900 text-sm px-4 py-2 flex items-center gap-3">
-      <span className="inline-flex w-2.5 h-2.5 rounded-full bg-amber-500" />
+    <div className="bg-yellow-50 border-b border-yellow-200 text-yellow-900 text-sm px-4 py-2 flex items-center gap-3">
+      <span className="inline-flex w-2.5 h-2.5 rounded-full bg-yellow-500" />
       <span className="flex-1">
         Backend: {apiOk ? 'API OK' : 'API unreachable'} · WS {paused ? 'paused' : (ws.connected ? 'connected' : 'disconnected')}
         {!paused && secondsToRetry !== null ? ` · auto-retry in ${secondsToRetry}s` : ''}
         {last ? ` · checked ${last.toLocaleTimeString()}` : ''}
       </span>
-      <button className="px-2 py-1 border rounded bg-white hover:bg-gray-50" onClick={togglePause}>{paused ? 'Resume WS' : 'Pause WS'}</button>
-      <button className="px-2 py-1 border rounded bg-white hover:bg-gray-50" onClick={retryNow} disabled={paused} title={paused? 'Resume first to reconnect':'Reconnect WebSocket'}>Retry</button>
-      <button className="px-2 py-1 border rounded bg-white hover:bg-gray-50" onClick={copyDiag}>Copy diagnostics</button>
+      <button className="btn btn-secondary btn-sm" onClick={togglePause}>{paused ? 'Resume WS' : 'Pause WS'}</button>
+      <button className="btn btn-secondary btn-sm" onClick={retryNow} disabled={paused} title={paused? 'Resume first to reconnect':'Reconnect WebSocket'}>Retry</button>
+      <button className="btn btn-secondary btn-sm" onClick={copyDiag}>Copy diagnostics</button>
     </div>
   );
 }

@@ -1,0 +1,15 @@
+{
+  "connections": [
+    {
+      "id": "162f4ab4-56c1-499b-9283-57cccb5fcea7",
+      "name": "opcua-local",
+      "type": "opcua",
+      "config": {
+        "endpointUrl": "opc.tcp://127.0.0.1:60441"
+      },
+      "createdAt": "2026-03-16T07:12:46.400Z",
+      "workspaceId": null,
+      "status": "connected"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 import React from 'react';
 
 function StatusDot({ status = 'disconnected' }) {
-  const color = status === 'connected' ? 'bg-green-500' : status === 'connecting' ? 'bg-amber-500' : status === 'error' ? 'bg-red-500' : 'bg-gray-300';
+  const color = status === 'connected' ? 'bg-green-500' : status === 'connecting' ? 'bg-yellow-500' : status === 'error' ? 'bg-red-500' : 'bg-gray-300';
   return <span className={`inline-block w-2.5 h-2.5 rounded-full ${color}`} aria-hidden="true"/>;
 }
 
@@ -27,7 +27,13 @@ export default function ConnectionBadge({
       <span className="font-medium">{label}</span>
       {t ? <span className="uppercase text-[10px] tracking-wide text-gray-500">{t}</span> : null}
       {shortId ? <span className="font-mono text-gray-400">#{shortId}</span> : null}
-      {s ? <span className={`ml-1 px-1.5 py-0.5 rounded ${s==='connected' ? 'bg-green-50 text-green-700' : s==='connecting' ? 'bg-amber-50 text-amber-700' : s==='error' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>{s}</span> : null}
+      {s ? (
+        <span className={`ml-1 chip chip-sm ${
+          s==='connected'  ? 'chip-success' :
+          s==='connecting' ? 'chip-warning' :
+          s==='error'      ? 'chip-error' : 'chip-disabled'
+        }`}>{s}</span>
+      ) : null}
     </div>
   );
 }

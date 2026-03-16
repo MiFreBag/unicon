@@ -1,0 +1,15 @@
+{
+  "connections": [
+    {
+      "id": "f922c534-5641-4a2d-b7f6-e9e7ae30de34",
+      "name": "rest-local",
+      "type": "rest",
+      "config": {
+        "baseUrl": "http://127.0.0.1:60867"
+      },
+      "createdAt": "2026-03-16T07:14:06.143Z",
+      "workspaceId": null,
+      "status": "connected"
+    }
+  ]
+}

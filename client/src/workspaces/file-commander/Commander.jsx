@@ -251,7 +251,7 @@ export default function Commander() {
               return (
                 <tr key={i} className={`border-b ${checked?'bg-blue-50':''}`} draggable onDragStart={(e)=>{
                   const names = pane.sel.has(it.name) ? Array.from(pane.sel) : [it.name];
-                  e.dataTransfer.setData('application/x-unicon', JSON.stringify({ from: side, names }));
+                  e.dataTransfer.setData('application/x-unicon', JSON.stringify({ from: side, names, connectionId: pane.conn?.id, cwd: pane.cwd }));
                 }} onClick={(e)=>pane.onRowClick(e, it, i)}>
                   <td className="px-2 py-1">{!isDir && (<input type="checkbox" checked={checked} onChange={(e)=>{ e.stopPropagation(); const s=new Set(pane.sel); if(s.has(it.name)) s.delete(it.name); else s.add(it.name); pane.setSel(s); }} />)}</td>
                   <td className="px-2 py-1"><button className="hover:underline" onClick={(e)=>{ e.stopPropagation(); pane.open(it); }}>{it.name}</button></td>
@@ -322,6 +322,7 @@ function useLocalPane(){
   const [items, setItems] = React.useState([]);
   const [sel, setSel] = React.useState(new Set());
   const [loading, setLoading] = React.useState(false);
+  const [dlProg, setDlProg] = React.useState({ running: false, bytes: 0, total: 0, filesDone: 0, filesTotal: 0, startedAt: 0 });
 
   const rootName = React.useMemo(()=> (root ? (root.name || 'Folder') : ''), [root]);
   const cwd = React.useMemo(()=> (stack.length ? stack.join('/') : '.'), [stack]);
@@ -396,13 +397,114 @@ function useLocalPane(){
     }
   }
 
-  return { root, rootName, items, sel, setSel, loading, cwd, canGoUp, pickRoot, list, goUp, open, onRowClick, uploadTo };
+  async function ensureSubdir(dirRel){
+    let h = await getDirHandle();
+    if (!h) throw new Error('no-root');
+    const segs = String(dirRel||'').split('/').filter(Boolean);
+    for (const s of segs){ h = await h.getDirectoryHandle(s, { create: true }); }
+    return h;
+  }
+
+  async function saveStreamToFile(dirHandle, name, respBody, onBytes){
+    const fh = await dirHandle.getFileHandle(name, { create: true });
+    const ws = await fh.createWritable();
+    const reader = respBody.getReader();
+    let done = false;
+    while (!done){
+      const r = await reader.read();
+      if (r.done) { done = true; break; }
+      const chunk = r.value; await ws.write(chunk);
+      if (onBytes && chunk) onBytes(chunk.length || 0);
+    }
+    await ws.close();
+  }
+
+  async function downloadOne(connectionId, remotePath, relTarget){
+    const dirRel = relTarget.split('/').slice(0,-1).join('/'); const baseName = relTarget.split('/').pop();
+    const dirHandle = await ensureSubdir(dirRel);
+    const resp = await fetch(`/unicon/api/stream/download?connectionId=${encodeURIComponent(connectionId)}&path=${encodeURIComponent(remotePath)}`);
+    if (!resp.ok || !resp.body) throw new Error('download failed');
+    await saveStreamToFile(dirHandle, baseName, resp.body, (n)=> setDlProg(p=>({ ...p, bytes: p.bytes + n })) );
+  }
+
+  async function isDirectoryRemote(connectionId, pathRel){
+    try {
+      const r = await op(connectionId, 'list', { path: pathRel });
+      return Array.isArray(r?.data);
+    } catch { return false; }
+  }
+
+  async function buildDownloadPlan(connectionId, baseCwd, names){
+    const plan = [];
+    async function addFile(abs, rel, size){ plan.push({ abs, rel, size: Number(size||0) }); }
+    for (const n of names){
+      const remotePath = baseCwd === '/' ? `/${n}` : `${baseCwd}/${n}`;
+      const isDir = await isDirectoryRemote(connectionId, remotePath).catch(()=>false);
+      if (!isDir){
+        // Try to get size by listing parent
+        const parent = baseCwd; const listing = await op(connectionId, 'list', { path: parent }).then(r=>r?.data||[]);
+        const ent = listing.find(e=>e.name===n);
+        await addFile(remotePath, n, ent?.size||0);
+      } else {
+        const queue = [{ p: remotePath, rel: n }];
+        while (queue.length){
+          const cur = queue.shift();
+          const listing = await op(connectionId, 'list', { path: cur.p }).then(r=>r?.data||[]);
+          for (const e of listing){
+            const isD = e.isDirectory===true || e.type==='d' || e.type===1;
+            const abs = cur.p === '/' ? `/${e.name}` : `${cur.p}/${e.name}`;
+            const rel = cur.rel ? `${cur.rel}/${e.name}` : e.name;
+            if (isD) queue.push({ p: abs, rel });
+            else await addFile(abs, rel, e.size||0);
+          }
+        }
+      }
+    }
+    return plan;
+  }
+
+  function humanizeSeconds(s){ if (!isFinite(s) || s<0) return ''; const m=Math.floor(s/60), sec=Math.floor(s%60); return m?`${m}m ${sec}s`:`${sec}s`; }
+
+  async function downloadFromRemote(connectionId, baseCwd, names){
+    // Build plan to know totals
+    setDlProg({ running: true, bytes: 0, total: 0, filesDone: 0, filesTotal: 0, startedAt: Date.now() });
+    const plan = await buildDownloadPlan(connectionId, baseCwd, names);
+    const totalBytes = plan.reduce((a,b)=>a+(b.size||0),0);
+    setDlProg(p=>({ ...p, total: totalBytes, filesTotal: plan.length }));
+
+    for (let i=0;i<plan.length;i++){
+      const f = plan[i];
+      await downloadOne(connectionId, f.abs, f.rel);
+      setDlProg(p=>({ ...p, filesDone: i+1 }));
+    }
+    setDlProg(p=>({ ...p, running:false }));
+    await list(cwd);
+  }
+
+  return { root, rootName, items, sel, setSel, loading, cwd, canGoUp, pickRoot, list, goUp, open, onRowClick, uploadTo, downloadFromRemote, dlProg };
 }
 
 function LocalPane({ pane, side }){
   return (
-    <div className="flex-1 flex flex-col border rounded" onDragOver={(e)=>e.preventDefault()}>
+    <div className="flex-1 flex flex-col border rounded" onDragOver={(e)=>e.preventDefault()} onDrop={async (e)=>{
+      try {
+        const s = e.dataTransfer.getData('application/x-unicon');
+        if (!s) return;
+        const payload = JSON.parse(s);
+        if (!payload.connectionId || !payload.cwd || !Array.isArray(payload.names)) return;
+        await pane.downloadFromRemote(payload.connectionId, payload.cwd, payload.names);
+      } catch(_){}
+    }}>
       <div className="flex items-center gap-2 p-2 border-b">
+        {pane.dlProg?.running && (
+          <div className="flex items-center gap-2 text-xs text-gray-700">
+            <div className="w-40 h-2 bg-gray-200 rounded overflow-hidden">
+              <div className="h-2 bg-emerald-600" style={{ width: `${pane.dlProg.total>0 ? Math.floor(100*(pane.dlProg.bytes/Math.max(1,pane.dlProg.total))) : 0}%` }} />
+            </div>
+            <span>{pane.dlProg.filesDone}/{pane.dlProg.filesTotal} · {Math.round(pane.dlProg.bytes/1024)} / {Math.round(Math.max(1,pane.dlProg.total)/1024)} KB</span>
+            <span>{(() => { const elapsed=(Date.now()-(pane.dlProg.startedAt||Date.now()))/1000; const rate= pane.dlProg.bytes/Math.max(1,elapsed); const rem = Math.max(0, pane.dlProg.total - pane.dlProg.bytes); return humanizeSeconds(rem/Math.max(1,rate)); })()}</span>
+          </div>
+        )}
         <Input className="flex-1" value={pane.cwd} readOnly />
         <Button variant="secondary" onClick={()=>pane.goUp()} disabled={!pane.canGoUp}>Up</Button>
       </div>

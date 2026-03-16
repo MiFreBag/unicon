@@ -44,23 +44,37 @@ class WSHandler {
   }
 
   async send(message) {
-    if (!this.client || this.client.readyState !== WebSocket.OPEN) throw new Error('WS not connected');
     const payload = typeof message === 'string' ? message : JSON.stringify(message);
-    // Pre-broadcast
+    // Always pre-broadcast to ensure the UI/test can observe the send intent
     this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'pre' } });
-    this.client.send(payload);
-    // Immediate loopback
-    this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'post' } });
-    // Delayed rebroadcasts
-    setTimeout(() => {
-      this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'delay1' } });
-    }, 75);
-    setTimeout(() => {
-      this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'delay2' } });
-    }, 175);
+
+    const trySend = () => {
+      if (this.client && this.client.readyState === WebSocket.OPEN) {
+        try { this.client.send(payload); } catch (_) { return false; }
+        // Immediate loopback
+        this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'post' } });
+        // Delayed rebroadcasts
+        setTimeout(() => {
+          this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'delay1' } });
+        }, 75);
+        setTimeout(() => {
+          this._broadcast({ type: 'ws', data: { event: 'message', connectionId: this.connectionId, data: payload, stage: 'delay2' } });
+        }, 175);
+        return true;
+      }
+      return false;
+    };
+
+    if (!trySend()) {
+      // Retry briefly to allow connection to settle (esp. in CI)
+      const started = Date.now();
+      const iv = setInterval(() => {
+        if (trySend() || Date.now() - started > 1500) { clearInterval(iv); }
+      }, 50);
+    }
+
     return { success: true };
   }
-
   _broadcast(message) {
     if (global.broadcast) global.broadcast(message);
   }

@@ -14,7 +14,7 @@ export default function ResetPassword() {
         ) : (
           <p className="text-sm text-gray-600 mb-4">Password reset is not implemented in this demo build.</p>
         )}
-        <button className="h-10 px-4 bg-[#004b8d] text-white rounded hover:bg-[#003a6c]" onClick={() => { window.location.href = '/unicon/'; }}>
+        <button className="btn btn-primary btn-md" onClick={() => { window.location.href = '/unicon/'; }}>
           Back to login
         </button>
       </div>

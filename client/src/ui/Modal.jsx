@@ -9,7 +9,7 @@ export default function Modal({ open, title, onClose, children, footer }) {
       <div className="relative bg-white rounded-lg shadow-lg max-w-[600px] w-[90%] p-6">
         {title ? <h3 className="text-[24px] leading-8 font-bold text-swarco-grey-900 mb-4">{title}</h3> : null}
         <div>{children}</div>
-        {footer ? <div className="mt-6 flex items-center justify-end gap-2">{footer}</div> : null}
+        {footer ? <div className="mt-6 button-bar horizontal">{footer}</div> : null}
       </div>
     </div>
   );

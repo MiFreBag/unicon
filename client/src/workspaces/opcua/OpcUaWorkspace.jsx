@@ -651,19 +651,36 @@ export default function OpcUaWorkspace({ connection }) {
           </div>
           <div className="max-h-64 overflow-y-auto text-sm">
             {logList.length ? (
-              <div className="space-y-1">
-                {logList.map((f)=> (
-                  <div key={f.name} className="flex items-center justify-between border rounded px-2 py-1">
-                    <div className="truncate">
-                      <div className="font-mono text-xs truncate" title={f.name}>{f.name}</div>
-                      <div className="text-[11px] text-gray-500">{new Date(f.mtime).toLocaleString()} • {(f.size/1024).toFixed(1)} KB</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button className="px-2 py-0.5 border rounded text-xs" onClick={()=>window.open(`/unicon/api/opcua/logs/download?file=${encodeURIComponent(f.name)}`,'_blank')}>Download</button>
-                      <button className="px-2 py-0.5 border rounded text-xs" onClick={async()=>{ if(!confirm('Delete log?')) return; try { await fetch('/unicon/api/opcua/logs', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ file: f.name }) }); setLogList(prev => prev.filter(x=>x.name!==f.name)); } catch(_){} }}>Delete</button>
-                    </div>
-                  </div>
-                ))}
+              <div className="overflow-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="text-left px-2 py-1">Dataset</th>
+                      <th className="text-left px-2 py-1">Connection</th>
+                      <th className="text-left px-2 py-1">Filename</th>
+                      <th className="text-left px-2 py-1">Size</th>
+                      <th className="text-left px-2 py-1">Modified</th>
+                      <th className="px-2 py-1 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logList.map((f)=> (
+                      <tr key={f.name} className="border-b">
+                        <td className="px-2 py-1 font-mono">{f.datasetId || '—'}</td>
+                        <td className="px-2 py-1 font-mono" title={f.connectionId || ''}>
+                          {f.connectionId ? `${String(f.connectionId).slice(0,8)}…` : '—'}
+                        </td>
+                        <td className="px-2 py-1 font-mono truncate" title={f.name}>{f.name}</td>
+                        <td className="px-2 py-1">{(f.size/1024).toFixed(1)} KB</td>
+                        <td className="px-2 py-1">{new Date(f.mtime).toLocaleString()}</td>
+                        <td className="px-2 py-1 text-right">
+                          <button className="px-2 py-0.5 border rounded text-xs" onClick={()=>window.open(`/unicon/api/opcua/logs/download?file=${encodeURIComponent(f.name)}`,'_blank')}>Download</button>
+                          <button className="ml-2 px-2 py-0.5 border rounded text-xs" onClick={async()=>{ if(!confirm('Delete log?')) return; try { await fetch('/unicon/api/opcua/logs', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ file: f.name }) }); setLogList(prev => prev.filter(x=>x.name!==f.name)); } catch(_){} }}>Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
               <div className="text-gray-500 text-sm">No logs found</div>

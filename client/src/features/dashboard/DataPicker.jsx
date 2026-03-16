@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { listConnections, op } from '../../lib/api';
+import { listConnections, apiGet } from '../../lib/api';
 
 const COLORS = ['#2563eb', '#16a34a', '#dc2626', '#7c3aed', '#ea580c', '#0891b2', '#c026d3'];
 
@@ -29,11 +29,29 @@ export default function DataPicker({ open, onClose, onAdd }) {
   const [wsTimePath, setWsTimePath] = useState('ts');
   const [wsUnitPath, setWsUnitPath] = useState('unit');
 
+  const [error, setError] = useState(null);
+  const [skipWorkspace, setSkipWorkspace] = useState(false);
+
+  const loadConns = () => {
+    setLoading(true);
+    setError(null);
+    const fetcher = skipWorkspace ? apiGet('/connections') : listConnections();
+    fetcher
+      .then(r => {
+        console.log('[DataPicker] connections response:', r, 'skipWorkspace:', skipWorkspace);
+        setConnections(r.connections || []);
+      })
+      .catch(e => {
+        console.error('[DataPicker] connections error:', e);
+        setError(e.message);
+      })
+      .finally(() => setLoading(false));
+  };
+
   useEffect(() => {
     if (!open) return;
-    setLoading(true);
-    listConnections().then(r => setConnections(r.connections || [])).finally(() => setLoading(false));
-  }, [open]);
+    loadConns();
+  }, [open, skipWorkspace]);
 
   if (!open) return null;
 
@@ -73,6 +91,20 @@ export default function DataPicker({ open, onClose, onAdd }) {
       <div className="bg-white rounded-md shadow-lg w-full max-w-2xl">
         <div className="p-4 border-b font-semibold">Add data series</div>
         <div className="p-4 space-y-4 text-sm">
+          {loading && <div className="text-blue-600">Loading connections…</div>}
+          {error && <div className="text-red-600 bg-red-50 p-2 rounded">Error: {error}</div>}
+          {!loading && !error && connections.length === 0 && (
+            <div className="text-amber-600 bg-amber-50 p-2 rounded">
+              No connections found. Create a connection first in the Connections workspace.
+            </div>
+          )}
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" checked={skipWorkspace} onChange={e => setSkipWorkspace(e.target.checked)} />
+              Show all connections (ignore workspace filter)
+            </label>
+            <span>| Found: {connections.length}</span>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-600 mb-1">Connection</label>

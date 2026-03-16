@@ -4,27 +4,22 @@ import Icon from '../ui/Icon.jsx';
 
 export default function Sidebar({ onOpenWorkspace, activeTabKind }) {
   const Item = ({ iconName, label, onClick, active = false }) => (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-2 rounded-md text-sm hover:bg-gray-100 transition ${
-        active ? 'bg-gray-100 font-medium' : ''
-      }`}
-    >
-      <Icon name={iconName} size={18} className="text-gray-700" />
+    <button onClick={onClick} className={`sidebar-item ${active ? 'sidebar-item-active' : ''}`}>
+      <Icon name={iconName} size={18} className="sidebar-item-icon" />
       <span>{label}</span>
     </button>
   );
 
   return (
-    <aside className="w-64 border-r border-gray-200 bg-white p-4 space-y-4">
-      <div className="px-2 text-xs uppercase text-gray-500 tracking-wide">General</div>
+    <aside className="sidebar">
+      <div className="sidebar-section">General</div>
       <div className="space-y-1">
         <Item iconName="layout" label="Dashboard" onClick={() => onOpenWorkspace('dashboard')} />
         <Item iconName="list" label="Connections" onClick={() => onOpenWorkspace('connections')} />
         <Item iconName="globe" label="Examples" onClick={() => onOpenWorkspace('examples')} />
       </div>
-      <div className="pt-4 border-t border-gray-200" />
-      <div className="px-2 text-xs uppercase text-gray-500 tracking-wide">Workspaces</div>
+      <div className="sidebar-divider" />
+      <div className="sidebar-section">Workspaces</div>
       <div className="space-y-1">
         <Item iconName="globe" label="REST" onClick={() => onOpenWorkspace('rest')} active={activeTabKind === 'rest'} />
         <Item iconName="server" label="OPC UA" onClick={() => onOpenWorkspace('opcua')} />
@@ -37,15 +32,15 @@ export default function Sidebar({ onOpenWorkspace, activeTabKind }) {
         <Item iconName="layers" label="File Commander" onClick={() => onOpenWorkspace('commander')} />
       </div>
 
-      <div className="pt-4 border-t border-gray-200" />
-      <div className="px-2 text-xs uppercase text-gray-500 tracking-wide">Tools</div>
+      <div className="sidebar-divider" />
+      <div className="sidebar-section">Tools</div>
       <div className="space-y-1">
         <Item iconName="activity" label="Network Tools" onClick={() => onOpenWorkspace('helpers-network')} />
         <Item iconName="braces" label="JSON/YAML Tools" onClick={() => onOpenWorkspace('helpers-format')} />
       </div>
 
-      <div className="pt-4 border-t border-gray-200" />
-      <div className="px-2 text-xs uppercase text-gray-500 tracking-wide">System</div>
+      <div className="sidebar-divider" />
+      <div className="sidebar-section">System</div>
       <div className="space-y-1">
         <Item iconName="gear" label="Settings" onClick={() => {}} />
         <Item iconName="list" label="Templates" onClick={() => onOpenWorkspace('templates')} />

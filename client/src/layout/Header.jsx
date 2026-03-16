@@ -66,22 +66,22 @@ export default function Header({ onNewConnection, activeTab }) {
   const [wsMgr, setWsMgr] = React.useState(false);
   return (
     <>
-    <header className="h-14 border-b border-gray-200 bg-white px-4 flex items-center justify-between">
+    <header className="appbar px-4">
       <div className="flex items-center gap-3">
         <img src="/unicon/brand/swarco.svg" alt="Swarco" className="h-6" />
-        <div className="font-semibold text-swarco-grey-900">Unicon</div>
+        <div className="appbar-title">Unicon</div>
       </div>
       <div className="flex items-center gap-3 relative">
         <div className="flex items-center gap-2">
-          <select className="border rounded px-2 py-1 text-sm" value={activeWs} onChange={e=>{ const v=e.target.value; setActiveWs(v); try { localStorage.setItem('unicon_current_workspace_v1', v); } catch {} location.reload(); }}>
+          <select className="input input-sm w-auto" value={activeWs} onChange={e=>{ const v=e.target.value; setActiveWs(v); try { localStorage.setItem('unicon_current_workspace_v1', v); } catch {} location.reload(); }}>
             <option value="">All workspaces</option>
             {workspaces.map(w => (<option key={w.id} value={w.id}>{w.name}</option>))}
           </select>
-          <button className="px-2 py-1 border rounded text-xs" title="Create workspace" onClick={async ()=>{ const name = prompt('New workspace name'); if(!name) return; try { const r = await createWorkspace(name); setWorkspaces(prev => [...prev, r.workspace]); localStorage.setItem('unicon_current_workspace_v1', r.workspace.id); location.reload(); } catch(e){ alert('Failed: '+e.message); } }}>
+          <button className="btn btn-secondary btn-sm" title="Create workspace" onClick={async ()=>{ const name = prompt('New workspace name'); if(!name) return; try { const r = await createWorkspace(name); setWorkspaces(prev => [...prev, r.workspace]); localStorage.setItem('unicon_current_workspace_v1', r.workspace.id); location.reload(); } catch(e){ alert('Failed: '+e.message); } }}>
             +
           </button>
         </div>
-        <button className="px-2 py-1 border rounded text-xs" title="Manage workspaces" onClick={()=>setWsMgr(true)}>Manage</button>
+        <button className="btn btn-secondary btn-sm" title="Manage workspaces" onClick={()=>setWsMgr(true)}>Manage</button>
         <ConnectionBadge connection={activeConnection || undefined} />
         <Button variant="secondary" size="md" leftEl={<Icon name="plus" size={16} className="mr-2"/>} onClick={onNewConnection}>New Connection</Button>
         <Tooltip text="Help">

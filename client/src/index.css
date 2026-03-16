@@ -1,5 +1,6 @@
 /* src/index.css */
 @import './theme/brand.css';
+@import './theme/components.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -51,15 +52,16 @@
   }
   
   .tab-button {
-    @apply py-2 px-1 border-b-2 font-medium text-sm transition-colors;
+    /* 16px Regular (400) / line-height 24px; 2px bottom stroke per styleguide */
+    @apply py-2 px-2 border-b-2 text-base leading-6 transition-colors;
   }
   
   .tab-button.active {
-    @apply border-blue-500 text-blue-600;
+    @apply border-blue-600 text-blue-600 font-semibold; /* active emphasized */
   }
   
   .tab-button.inactive {
-    @apply border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300;
+    @apply border-transparent text-gray-600 hover:text-gray-800 hover:border-gray-300;
   }
 }
 
@@ -69,6 +71,6 @@
   }
   
   .gradient-bg {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-accent) 100%);
   }
 }

@@ -1,0 +1,28 @@
+{
+  "connections": [
+    {
+      "id": "7682a2cb-415e-4fad-a6af-71d2fa7bd2dc",
+      "name": "opcua-bad",
+      "type": "opcua",
+      "config": {
+        "endpointUrl": "opc.tcp://127.0.0.1:1",
+        "timeoutMs": 1000
+      },
+      "createdAt": "2026-03-16T07:14:05.227Z",
+      "workspaceId": null,
+      "status": "disconnected"
+    },
+    {
+      "id": "b618ab3e-9525-42a4-bc94-9893271dc558",
+      "name": "opcua-timeout",
+      "type": "opcua",
+      "config": {
+        "endpointUrl": "opc.tcp://192.0.2.1:4840",
+        "timeoutMs": 1000
+      },
+      "createdAt": "2026-03-16T07:14:05.672Z",
+      "workspaceId": null,
+      "status": "disconnected"
+    }
+  ]
+}

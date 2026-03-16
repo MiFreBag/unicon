@@ -11,7 +11,7 @@
     "tag": "standard-version && npm run update-remote && git push --follow-tags origin main && npm publish",
     "dev:all": "concurrently -n unicon-client,unicon-server -c green,blue \"npm:unicon-client\" \"npm:unicon-server\"",
     "dev:desktop": "concurrently -n client,server,electron -c green,blue,magenta \"npm:unicon-client\" \"npm:unicon-server\" \"npm --prefix desktop run dev:with-server\"",
-    "server": "node server/index.js",
+    "server": "node server/universal-server.js",
     "unicon-client": "npm --prefix client run dev",
     "unicon-server": "npm --prefix server run dev",
     "desktop:pack": "npm --prefix client run build && node desktop/scripts/copy-dist.js && npm --prefix desktop run build",

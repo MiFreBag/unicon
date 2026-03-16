@@ -68,28 +68,28 @@ export default function Login({ onLoggedIn }) {
               <h1 className="text-[32px] leading-[40px] font-bold mb-6">Welcome</h1>
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Demo helper */}
-                <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded p-3">
-                  Demo credentials: <span className="font-semibold">demo@unicon.local</span> / <span className="font-semibold">demo123</span> 
+                <div className="alert alert-info">
+                  Demo credentials: <span className="font-semibold">demo@unicon.local</span> / <span className="font-semibold">demo123</span>
                   <button type="button" className="ml-2 underline" onClick={() => { setEmail('demo@unicon.local'); setPassword('demo123'); }}>Use</button>
                 </div>
-                {error && <div className="text-red-600 text-sm">{error}</div>}
+                {error && <div className="alert alert-error">{error}</div>}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[16px] leading-6 font-semibold text-gray-700">Email</label>
+                    <label className="label font-semibold">Email</label>
                     <span className="text-[12px] text-gray-400">*</span>
                   </div>
-                  <input type="email" className="w-full border rounded px-3 py-2 h-10" value={email} onChange={e=>setEmail(e.target.value)} required />
+                  <input type="email" className="input input-md" value={email} onChange={e=>setEmail(e.target.value)} required />
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[16px] leading-6 font-semibold text-gray-700">Password</label>
+                    <label className="label font-semibold">Password</label>
                     <button type="button" className="text-sm text-blue-700 hover:underline" onClick={async () => { try { const r = await apiPost('/auth/forgot', { email: email || 'demo@unicon.local' }); if (r?.reset_url) { alert(`Reset link (demo): ${r.reset_url}`); } else { alert('If the account exists, a reset link was sent.'); } } catch (e) { alert(e.message || 'Request failed'); } }}>Forgot password</button>
                   </div>
-                  <input type="password" className="w-full border rounded px-3 py-2 h-10" value={password} onChange={e=>setPassword(e.target.value)} required />
+                  <input type="password" className="input input-md" value={password} onChange={e=>setPassword(e.target.value)} required />
                 </div>
                 <div className="flex items-center gap-4 pt-2">
                   {/* Demo OAuth (local) */}
-                  <button type="button" aria-label="Continue with Demo OAuth" title="Continue with Demo OAuth" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => {
+                  <button type="button" aria-label="Continue with Demo OAuth" title="Continue with Demo OAuth" className="btn btn-icon" onClick={() => {
                     const redirect = `${location.origin}/unicon/auth/callback`;
                     const state = Math.random().toString(36).slice(2);
                     const url = `/unicon/api/oauth/authorize?client_id=demo&redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(state)}`;
@@ -98,16 +98,16 @@ export default function Login({ onLoggedIn }) {
                     <KeyRound size={18} aria-hidden="true" />
                   </button>
                   {/* Google */}
-                  <button type="button" aria-label="Sign in with Google" title="Sign in with Google" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => startProvider('google')}>
+                  <button type="button" aria-label="Sign in with Google" title="Sign in with Google" className="btn btn-icon" onClick={() => startProvider('google')}>
                     <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
                       <path fill="#EA4335" d="M12 11.9999v3.8h5.3c-.2 1.2-1.4 3.5-5.3 3.5-3.2 0-5.9-2.6-5.9-5.9s2.7-5.9 5.9-5.9c1.8 0 3 .7 3.7 1.3l2.5-2.4C16.7 4.2 14.6 3.3 12 3.3 6.9 3.3 2.8 7.4 2.8 12.5S6.9 21.7 12 21.7c6.9 0 9.5-4.8 9.5-7.2 0-.5-.1-.8-.1-1.1H12z"/>
                     </svg>
                   </button>
                   {/* GitHub */}
-                  <button type="button" aria-label="Sign in with GitHub" title="Sign in with GitHub" className="h-10 w-10 border rounded flex items-center justify-center" onClick={() => startProvider('github')}>
+                  <button type="button" aria-label="Sign in with GitHub" title="Sign in with GitHub" className="btn btn-icon" onClick={() => startProvider('github')}>
                     <Github size={18} aria-hidden="true" />
                   </button>
-                  <button type="submit" disabled={loading} className="w-48 h-10 bg-[#004b8d] text-white rounded hover:bg-[#003a6c] disabled:opacity-50">
+                  <button type="submit" disabled={loading} className="btn btn-primary btn-md w-48 disabled:opacity-50">
                     {loading ? 'Signing in…' : 'Login'}
                   </button>
                   <button type="button" className="text-sm text-blue-700 hover:underline" onClick={async () => {
@@ -130,7 +130,7 @@ export default function Login({ onLoggedIn }) {
                 </div>
                 <div className="pt-2">
                   <label className="text-[16px] leading-6 font-semibold text-gray-700">Language</label>
-                  <select className="w-full border rounded px-3 py-2 h-10" defaultValue="en" onChange={async (e) => { const lang = e.target.value; try { await import('../lib/api').then(m => m.apiPost('/settings/language', { lang })).catch(()=>{}); } catch(_) {}; try { localStorage.setItem('lang', lang); } catch(_) {} }}>
+                  <select className="input input-md" defaultValue="en" onChange={async (e) => { const lang = e.target.value; try { await import('../lib/api').then(m => m.apiPost('/settings/language', { lang })).catch(()=>{}); } catch(_) {}; try { localStorage.setItem('lang', lang); } catch(_) {} }}>
                     <option value="en">English</option>
                     <option value="de">Deutsch</option>
                   </select>
@@ -159,13 +159,13 @@ export default function Login({ onLoggedIn }) {
           <div className="w-full max-w-md rounded-lg border bg-white p-6 shadow">
             <div className="flex items-center justify-between mb-3">
               <div className="font-semibold text-gray-900">Continue with {consent.provider}</div>
-              <button className="p-1" aria-label="Close" onClick={()=>setConsent({ open:false, provider:null, loading:false, error:'' })}><X size={18}/></button>
+              <button className="btn btn-icon" aria-label="Close" onClick={()=>setConsent({ open:false, provider:null, loading:false, error:'' })}><X size={18}/></button>
             </div>
             <p className="text-sm text-gray-600 mb-3">You will be redirected to {consent.provider} to continue.</p>
-            {consent.error && <div className="text-sm text-red-600 mb-2">{consent.error}</div>}
-            <div className="flex gap-2">
-              <button className="px-4 h-10 rounded bg-[#004b8d] text-white disabled:opacity-50" disabled={consent.loading} onClick={continueProvider}>{consent.loading ? 'Continuing…' : 'Continue'}</button>
-              <button className="px-4 h-10 rounded bg-gray-100" onClick={()=>setConsent({ open:false, provider:null, loading:false, error:'' })}>Cancel</button>
+            {consent.error && <div className="alert alert-error mb-2">{consent.error}</div>}
+            <div className="button-bar horizontal">
+              <button className="btn btn-primary btn-md" disabled={consent.loading} onClick={continueProvider}>{consent.loading ? 'Continuing…' : 'Continue'}</button>
+              <button className="btn btn-secondary btn-md" onClick={()=>setConsent({ open:false, provider:null, loading:false, error:'' })}>Cancel</button>
             </div>
           </div>
         </div>
@@ -177,7 +177,9 @@ export default function Login({ onLoggedIn }) {
         title={info.kind === 'imprint' ? 'Imprint' : info.kind === 'privacy' ? 'Privacy Policy' : info.kind === 'server' ? 'Server Details' : ''}
         onClose={() => setInfo({ open:false, kind:null, data:null, loading:false, error:'' })}
         footer={
-          <button className="px-4 h-10 rounded bg-gray-100" onClick={() => setInfo({ open:false, kind:null, data:null, loading:false, error:'' })}>Close</button>
+          <div className="button-bar horizontal">
+            <button className="btn btn-secondary btn-md" onClick={() => setInfo({ open:false, kind:null, data:null, loading:false, error:'' })}>Close</button>
+          </div>
         }
       >
         {info.kind === 'imprint' && (
