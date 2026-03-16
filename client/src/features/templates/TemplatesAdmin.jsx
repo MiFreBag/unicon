@@ -102,18 +102,18 @@ export default function TemplatesAdmin() {
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Templates (Server)</h2>
         <div className="flex items-center gap-2">
-          <button className="px-3 py-1.5 border rounded" onClick={load} disabled={busy}>{busy ? 'Syncing…' : 'Sync'}</button>
-          <button className="px-3 py-1.5 border rounded" onClick={()=>importRef.current?.click()}>Import</button>
-          <a className="px-3 py-1.5 border rounded" href="/unicon/api/templates/export">Export</a>
+          <button className="btn btn-secondary btn-sm" onClick={load} disabled={busy}>{busy ? 'Syncing…' : 'Sync'}</button>
+          <button className="btn btn-secondary btn-sm" onClick={()=>importRef.current?.click()}>Import</button>
+          <a className="btn btn-secondary btn-sm" href="/unicon/api/templates/export">Export</a>
           <input ref={importRef} type="file" accept="application/json" className="hidden" onChange={e=>{ const f=e.target.files?.[0]; if (f) onImport(f); e.target.value=''; }} />
         </div>
       </div>
 
       <div className="flex items-center gap-2">
         <input type="checkbox" aria-label="Select all" onChange={toggleAll} checked={filtered.length>0 && filtered.every(t=>selected.has(t.id))} />
-        <button className="px-3 py-1.5 border rounded" onClick={onBulkDelete} disabled={!selected.size}>Delete selected</button>
-        <input className="border rounded px-3 py-1.5 flex-1" placeholder="Search by name/type/tag" value={q} onChange={e=>setQ(e.target.value)} />
-        <select className="border rounded px-2 py-1.5" value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}>
+        <button className="btn btn-secondary btn-sm" onClick={onBulkDelete} disabled={!selected.size}>Delete selected</button>
+        <input className="input input-sm flex-1" placeholder="Search by name/type/tag" value={q} onChange={e=>setQ(e.target.value)} />
+        <select className="input input-sm w-auto" value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}>
           <option value="">All types</option>
           {types.map(t => <option key={t} value={t}>{t.toUpperCase()}</option>)}
         </select>
@@ -127,16 +127,16 @@ export default function TemplatesAdmin() {
               <div className="flex-1">
                 {editing[t.id] ? (
                   <div className="grid grid-cols-3 gap-2 items-center">
-                    <input className="border rounded px-2 py-1 text-sm" value={editing[t.id].name} onKeyDown={e=>onEditKey(t.id, e)} onChange={e=>setEditing(p=>({...p,[t.id]:{...p[t.id], name:e.target.value}}))} />
-                    <select className="border rounded px-2 py-1 text-sm" value={editing[t.id].type} onKeyDown={e=>onEditKey(t.id, e)} onChange={e=>setEditing(p=>({...p,[t.id]:{...p[t.id], type:e.target.value}}))}>
+                    <input className="input input-sm" value={editing[t.id].name} onKeyDown={e=>onEditKey(t.id, e)} onChange={e=>setEditing(p=>({...p,[t.id]:{...p[t.id], name:e.target.value}}))} />
+                    <select className="input input-sm" value={editing[t.id].type} onKeyDown={e=>onEditKey(t.id, e)} onChange={e=>setEditing(p=>({...p,[t.id]:{...p[t.id], type:e.target.value}}))}>
                       {['rest','websocket','opc-ua','sql','grpc','cpd','ssh','ftp','sftp','k8s'].map(x=>(<option key={x} value={x}>{x}</option>))}
                     </select>
                     <div>
-                      <input className="border rounded px-2 py-1 text-sm w-full" placeholder="tag1, tag2" value={editing[t.id].tags} onKeyDown={e=>onEditKey(t.id, e)} onChange={e=>setEditing(p=>({...p,[t.id]:{...p[t.id], tags:e.target.value}}))} />
+                      <input className="input input-sm w-full" placeholder="tag1, tag2" value={editing[t.id].tags} onKeyDown={e=>onEditKey(t.id, e)} onChange={e=>setEditing(p=>({...p,[t.id]:{...p[t.id], tags:e.target.value}}))} />
                       {allTags.length>0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {allTags.filter(tag => !String(editing[t.id].tags||'').toLowerCase().split(',').map(s=>s.trim()).includes(tag.toLowerCase())).slice(0,8).map(tag => (
-                            <button key={tag} className="text-xs px-2 py-0.5 border rounded hover:bg-gray-50" onClick={()=>{
+                            <button key={tag} className="text-xs btn btn-secondary btn-sm" onClick={()=>{
                               setEditing(p=>{ const cur = p[t.id]; const curTags = String(cur.tags||'').split(',').map(s=>s.trim()).filter(Boolean); if (!curTags.includes(tag)) curTags.push(tag); return { ...p, [t.id]: { ...cur, tags: curTags.join(', ') } }; });
                             }}>{tag}</button>
                           ))}
@@ -153,25 +153,25 @@ export default function TemplatesAdmin() {
               </div>
               {editing[t.id] ? (
                 <div className="flex items-center gap-2">
-                  <button className="px-2 py-1 text-sm border rounded bg-blue-600 text-white" onClick={()=>saveEdit(t.id)} disabled={!!editing[t.id].configError}>Save</button>
-                  <button className="px-2 py-1 text-sm border rounded" onClick={()=>cancelEdit(t.id)}>Cancel</button>
+                  <button className="btn btn-primary btn-sm" onClick={()=>saveEdit(t.id)} disabled={!!editing[t.id].configError}>Save</button>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>cancelEdit(t.id)}>Cancel</button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <button className="px-2 py-1 text-sm border rounded" onClick={()=>startEdit(t)}>Edit</button>
-                  <button className="px-2 py-1 text-sm border rounded" onClick={()=>onClone(t)}>Clone</button>
-                  <button className="px-2 py-1 text-sm border rounded" onClick={()=>onDelete(t.id)}>Delete</button>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>startEdit(t)}>Edit</button>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>onClone(t)}>Clone</button>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>onDelete(t.id)}>Delete</button>
                 </div>
               )}
             </div>
             {editing[t.id] ? (
               <div className="mt-3">
                 <div className="text-xs text-gray-600 mb-1">Config (JSON)</div>
-                <textarea rows={8} className={`w-full border rounded px-2 py-1 font-mono text-xs ${editing[t.id].configError ? 'border-red-500' : ''}`} value={editing[t.id].config}
+                <textarea rows={8} className={`input input-sm font-mono text-xs w-full ${editing[t.id].configError ? 'input-invalid' : ''}`} value={editing[t.id].config}
                   onKeyDown={e=>onEditKey(t.id, e)}
                   onChange={e=>setEditing(p=>({...p,[t.id]:{...p[t.id], config:e.target.value, configError:''}}))} />
                 <div className="mt-1 flex items-center gap-2 text-xs">
-                  <button className="px-2 py-0.5 border rounded" onClick={()=>{
+                  <button className="btn btn-secondary btn-sm" onClick={()=>{
                     try { const pretty = JSON.stringify(JSON.parse(editing[t.id].config||'{}'), null, 2); setEditing(p=>({...p,[t.id]:{...p[t.id], config: pretty, configError:''}})); }
                     catch (e){ setEditing(p=>({...p,[t.id]:{...p[t.id], configError: String(e.message||'Invalid JSON')}})); }
                   }}>Format</button>
@@ -195,28 +195,28 @@ export default function TemplatesAdmin() {
 
       <div className="border rounded p-3">
         <div className="font-medium mb-2">Create new template</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm mb-1">Name</label>
-            <input className="w-full border rounded px-3 py-1.5" value={creating.name} onChange={e=>setCreating(p=>({...p,name:e.target.value}))} />
+            <label className="label">Name</label>
+            <input className="input input-sm" value={creating.name} onChange={e=>setCreating(p=>({...p,name:e.target.value}))} />
           </div>
           <div>
-            <label className="block text-sm mb-1">Type</label>
-            <select className="w-full border rounded px-3 py-1.5" value={creating.type} onChange={e=>setCreating(p=>({...p,type:e.target.value}))}>
+            <label className="label">Type</label>
+            <select className="input input-sm" value={creating.type} onChange={e=>setCreating(p=>({...p,type:e.target.value}))}>
               {['rest','websocket','opc-ua','sql','grpc','cpd','ssh','ftp','sftp','k8s'].map(t=>(<option key={t} value={t}>{t}</option>))}
             </select>
           </div>
           <div>
-            <label className="block text-sm mb-1">Tags (comma-separated)</label>
-            <input className="w-full border rounded px-3 py-1.5" value={creating.tags} onChange={e=>setCreating(p=>({...p,tags:e.target.value}))} />
+            <label className="label">Tags (comma-separated)</label>
+            <input className="input input-sm" value={creating.tags} onChange={e=>setCreating(p=>({...p,tags:e.target.value}))} />
           </div>
           <div className="md:col-span-2">
-            <label className="block text-sm mb-1">Config (JSON)</label>
-            <textarea rows={8} className="w-full border rounded px-3 py-2 font-mono text-sm" value={creating.config} onChange={e=>setCreating(p=>({...p,config:e.target.value}))} />
+            <label className="label">Config (JSON)</label>
+            <textarea rows={8} className="input input-md font-mono text-sm w-full" value={creating.config} onChange={e=>setCreating(p=>({...p,config:e.target.value}))} />
           </div>
         </div>
-        <div className="mt-3">
-          <button className="px-3 py-1.5 border rounded bg-blue-600 text-white" onClick={onCreate}>Create</button>
+        <div className="mt-3 button-bar horizontal">
+          <button className="btn btn-primary btn-sm" onClick={onCreate}>Create</button>
         </div>
       </div>
     </div>

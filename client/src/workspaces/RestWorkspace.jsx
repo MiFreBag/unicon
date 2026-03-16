@@ -415,17 +415,13 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
         </div>
       ) : null}
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex space-x-8">
+      <div className="mb-6">
+        <nav className="flex space-x-2 border-b border-gray-200">
           {['request', 'response', 'history'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === tab
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              className={`tab-button ${activeTab === tab ? 'active' : 'inactive'}`}
             >
               {tab === 'request' && 'Request'}
               {tab === 'response' && 'Response'}
@@ -439,7 +435,7 @@ const RestWorkspace = ({ connection, openTab, autoRequest }) => {
       <div className="mb-3 text-sm text-gray-700 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <span>Quick pick:</span>
-          <select className="border rounded px-2 py-1" onChange={async (e)=>{
+          <select className="input input-sm w-auto" onChange={async (e)=>{
             const idx = Number(e.target.value); if (isNaN(idx)) return;
             const ex = EXAMPLE_PRESETS.rest[idx];
             setSelectedPreset(ex); // Store the selected preset

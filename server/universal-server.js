@@ -204,8 +204,11 @@ const buildState = () => {
 let __LAST_WS = null;
 let __WS_COUNT = 0;
 const createBroadcast = connectedClients => message => {
+  // Always record last WS broadcast, even if there are no connected clients (stabilizes tests)
+  if (message && message.type === 'ws') {
+    try { __LAST_WS = message; __WS_COUNT++; if (process.env.NODE_ENV==='test') console.warn('[ws-broadcast]', __WS_COUNT); } catch {}
+  }
   connectedClients.forEach(client => {
-    if (message && message.type === 'ws') { try { __LAST_WS = message; __WS_COUNT++; if (process.env.NODE_ENV==='test') console.warn('[ws-broadcast]', __WS_COUNT); } catch {} }
     if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify(message));
     }

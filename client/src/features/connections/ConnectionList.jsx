@@ -115,7 +115,7 @@ export default function ConnectionList({ openTab }) {
   });
 
   function statusBeacon(status) {
-    const color = status === 'connected' ? 'bg-green-500' : status === 'connecting' ? 'bg-amber-500' : status === 'error' ? 'bg-red-500' : 'bg-gray-300';
+    const color = status === 'connected' ? 'bg-green-500' : status === 'connecting' ? 'bg-yellow-500' : status === 'error' ? 'bg-red-500' : 'bg-gray-300';
     return <span className={`inline-block w-2.5 h-2.5 rounded-full mr-2 ${color}`} />;
   }
 
@@ -384,10 +384,10 @@ export default function ConnectionList({ openTab }) {
           </label>
         </div>
         <div className="flex items-center gap-2">
-          <button className="inline-flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50" onClick={() => setShowDialog(true)}>
+          <button className="btn btn-secondary btn-sm inline-flex items-center gap-2" onClick={() => setShowDialog(true)}>
             <Plus size={16} /> New
           </button>
-          <button className="inline-flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50" title="Clear all logs" onClick={() => {
+          <button className="btn btn-secondary btn-sm inline-flex items-center gap-2" title="Clear all logs" onClick={() => {
             if (!confirm('Clear all saved connection logs? This will remove local copies.')) return;
             setLogs({});
             try {
@@ -429,7 +429,7 @@ export default function ConnectionList({ openTab }) {
                         {expanded[c.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </button>
                       {(isConnecting || retryTimers.current.has(c.id)) && (
-                        <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" title="Stop auto-retry" onClick={() => stopRetry(c.id)}>
+                        <button className="btn btn-secondary btn-sm inline-flex items-center gap-1 mr-2" title="Stop auto-retry" onClick={() => stopRetry(c.id)}>
                           <X size={14} /> Stop
                         </button>
                       )}
@@ -459,29 +459,29 @@ export default function ConnectionList({ openTab }) {
                           ))}
                         </div>
                       )}
-                      <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" title="Edit" onClick={() => { setEditConn(c); setShowDialog(true); }}>
-                        <Pencil size={14} />
-                      </button>
+                        <button className="btn btn-secondary btn-sm inline-flex items-center gap-1 mr-2" title="Edit" onClick={() => { setEditConn(c); setShowDialog(true); }}>
+                          <Pencil size={14} />
+                        </button>
                       <span className="inline-flex items-center gap-1 mr-2">
                         <label className="text-xs text-gray-500">Workspace:</label>
-                        <select className="border rounded px-1 py-0.5 text-xs" value={c.workspaceId || ''} onChange={(e)=> moveToWorkspace(c.id, e.target.value)}>
+                        <select className="input input-sm w-auto" value={c.workspaceId || ''} onChange={(e)=> moveToWorkspace(c.id, e.target.value)}>
                           <option value="">(none)</option>
                           {wsList.map(w => (<option key={w.id} value={w.id}>{w.name}</option>))}
                         </select>
                       </span>
-                      <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" onClick={() => onToggle(c)} disabled={isConnecting}>
+                      <button className="btn btn-secondary btn-sm inline-flex items-center gap-1 mr-2" onClick={() => onToggle(c)} disabled={isConnecting}>
                         {status === 'connected' ? (<><WifiOff size={14} /> Disconnect</>) : (<><Wifi size={14} /> {isConnecting ? 'Connecting…' : 'Connect'}</>)}
                       </button>
                       {status === 'error' && (
                         <>
-                          <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" onClick={() => { cancelRetries.current.delete(c.id); scheduleRetry(c.id); }}>Retry</button>
+                          <button className="btn btn-secondary btn-sm inline-flex items-center gap-1 mr-2" onClick={() => { cancelRetries.current.delete(c.id); scheduleRetry(c.id); }}>Retry</button>
                           {retryTimers.current.has(c.id) && (
-                            <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" onClick={() => stopRetry(c.id)}><X size={14} /> Stop</button>
+                            <button className="btn btn-secondary btn-sm inline-flex items-center gap-1 mr-2" onClick={() => stopRetry(c.id)}><X size={14} /> Stop</button>
                           )}
-                          <button className="inline-flex items-center gap-1 px-2 py-1 border rounded mr-2 hover:bg-gray-50" onClick={() => openDetails(c.id)}>Details</button>
+                          <button className="btn btn-secondary btn-sm inline-flex items-center gap-1 mr-2" onClick={() => openDetails(c.id)}>Details</button>
                         </>
                       )}
-                      <button className="inline-flex items-center gap-1 px-2 py-1 border rounded text-red-600 hover:bg-red-50" onClick={() => onDelete(c.id)} disabled={isConnecting}>
+                      <button className="btn btn-secondary btn-sm inline-flex items-center gap-1 text-red-600 hover:bg-red-50" onClick={() => onDelete(c.id)} disabled={isConnecting}>
                         <Trash2 size={14} /> Delete
                       </button>
                     </td>
@@ -492,13 +492,13 @@ export default function ConnectionList({ openTab }) {
                         <div className="flex items-center justify-between mb-1">
                           <div className="text-xs text-gray-600">Logs</div>
                           <div className="flex items-center gap-2">
-                            <button className="px-2 py-0.5 border rounded text-xs" onClick={() => exportLogs(c.id)}>Export</button>
-                            <button className="px-2 py-0.5 border rounded text-xs" onClick={() => { setLogs(prev => { const out = { ...prev, [c.id]: [] }; try { localStorage.removeItem(`unicon_conn_logs_v1_${c.id}`); } catch {} return out; }); }}>Clear</button>
+                            <button className="btn btn-secondary btn-sm" onClick={() => exportLogs(c.id)}>Export</button>
+                            <button className="btn btn-secondary btn-sm" onClick={() => { setLogs(prev => { const out = { ...prev, [c.id]: [] }; try { localStorage.removeItem(`unicon_conn_logs_v1_${c.id}`); } catch {} return out; }); }}>Clear</button>
                           </div>
                         </div>
                         <div className="max-h-40 overflow-auto text-xs font-mono leading-5">
                           {(logs[c.id] || []).slice().reverse().map((l, idx) => (
-                            <div key={idx} className={l.level === 'error' ? 'text-red-700' : (l.level === 'warn' ? 'text-amber-700' : 'text-gray-800')}>
+                            <div key={idx} className={l.level === 'error' ? 'text-red-700' : (l.level === 'warn' ? 'text-yellow-700' : 'text-gray-800')}>
                               <span className="opacity-60 mr-2">{new Date(l.ts).toLocaleTimeString()}</span>
                               {l.message}
                               {l.code || l.hint ? (<span className="opacity-80"> {l.code ? `[${l.code}]` : ''}{l.hint ? ` – ${l.hint}` : ''}</span>) : null}
@@ -537,17 +537,17 @@ export default function ConnectionList({ openTab }) {
         title="Connection details"
         onClose={() => setDetailsFor(null)}
         footer={(
-          <>
+          <div className="button-bar horizontal">
             {detailsFor ? (
               <>
-                <button className="px-3 py-1.5 border rounded" onClick={() => { const c = getConn(detailsFor.id); if (c) { setEditConn(c); setShowDialog(true); } }}>Edit</button>
-                <button className="px-3 py-1.5 border rounded" disabled={quickTesting} onClick={() => runQuickTest(detailsFor.id)}>{quickTesting ? 'Testing…' : 'Quick test'}</button>
-                <button className="px-3 py-1.5 border rounded" onClick={copyDetails}>Copy</button>
-                <button className="px-3 py-1.5 border rounded" onClick={() => exportLogs(detailsFor.id)}>Export logs</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => { const c = getConn(detailsFor.id); if (c) { setEditConn(c); setShowDialog(true); } }}>Edit</button>
+                <button className="btn btn-primary btn-sm" disabled={quickTesting} onClick={() => runQuickTest(detailsFor.id)}>{quickTesting ? 'Testing…' : 'Quick test'}</button>
+                <button className="btn btn-secondary btn-sm" onClick={copyDetails}>Copy</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => exportLogs(detailsFor.id)}>Export logs</button>
               </>
             ) : null}
-            <button className="px-3 py-1.5 border rounded bg-blue-600 text-white" onClick={() => setDetailsFor(null)}>Close</button>
-          </>
+            <button className="btn btn-secondary btn-sm" onClick={() => setDetailsFor(null)}>Close</button>
+          </div>
         )}
       >
         {detailsFor?.log ? (
@@ -715,12 +715,12 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
         <div className="p-4">
           <div className="space-y-3">
             <div>
-              <label className="block text-sm mb-1">Name</label>
-              <input className="w-full border rounded px-3 py-2" value={name} onChange={e => setName(e.target.value)} />
+              <label className="label">Name</label>
+              <input className="input input-md" value={name} onChange={e => setName(e.target.value)} />
             </div>
           <div>
-            <label className="block text-sm mb-1">Type</label>
-            <select className="w-full border rounded px-3 py-2" value={type} onChange={e => setType(e.target.value)}>
+            <label className="label">Type</label>
+            <select className="input input-md" value={type} onChange={e => setType(e.target.value)}>
               <option value="rest">REST</option>
               <option value="opc-ua">OPC UA</option>
               <option value="ws">WebSocket</option>
@@ -734,8 +734,8 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
             </select>
           </div>
           <div>
-            <label className="block text-sm mb-1">Workspace</label>
-            <select className="w-full border rounded px-3 py-2" value={workspaceId} onChange={e=> setWorkspaceId(e.target.value)}>
+            <label className="label">Workspace</label>
+            <select className="input input-md" value={workspaceId} onChange={e=> setWorkspaceId(e.target.value)}>
               <option value="">— None —</option>
               {workspaces.map(w => (<option key={w.id} value={w.id}>{w.name}</option>))}
             </select>
@@ -743,23 +743,23 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
             {type === 'rest' && (
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="block text-sm mb-1">Base URL</label>
+                  <label className="label">Base URL</label>
                   <div className="text-xs text-gray-600">
                     Suggestion:
-                    <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const idx=Number(e.target.value); if (!isNaN(idx)) setBaseUrl(EXAMPLE_PRESETS.rest[idx].baseUrl); }}>
+                    <select className="ml-2 input input-sm w-auto" onChange={(e)=>{ const idx=Number(e.target.value); if (!isNaN(idx)) setBaseUrl(EXAMPLE_PRESETS.rest[idx].baseUrl); }}>
                       <option>Pick…</option>
                       {EXAMPLE_PRESETS.rest.map((ex, i)=> (<option key={ex.name} value={i}>{ex.name}</option>))}
                     </select>
                   </div>
                 </div>
-                <input className="w-full border rounded px-3 py-2" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
+                <input className="input input-md" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
                 <div className="mt-2 text-xs text-gray-600">
                   From My Library:
-                  <select className="ml-2 border rounded px-2 py-1" onChange={(e)=>{ const t=lib.find(x=>x.id===e.target.value); applyTemplate(t); }}>
+                  <select className="ml-2 input input-sm w-auto" onChange={(e)=>{ const t=lib.find(x=>x.id===e.target.value); applyTemplate(t); }}>
                     <option value="">Pick…</option>
                     {lib.filter(t=> (t.type||'').toLowerCase()==='rest').map(t=>(<option key={t.id} value={t.id}>{t.name}</option>))}
                   </select>
-                  <button className="ml-2 px-2 py-1 border rounded" onClick={saveCurrentAsTemplate}>Save as template</button>
+                  <button className="ml-2 btn btn-secondary btn-sm" onClick={saveCurrentAsTemplate}>Save as template</button>
                 </div>
               </div>
             )}
@@ -831,16 +831,16 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
                   </select>
                   <button className="ml-2 px-2 py-1 border rounded" onClick={saveCurrentAsTemplate}>Save as template</button>
                 </div>
-                <div className="text-xs text-amber-600">Public OPC UA demo endpoints can be unstable. If connection fails, try again or use a local server.</div>
+                <div className="text-xs text-yellow-600">Public OPC UA demo endpoints can be unstable. If connection fails, try again or use a local server.</div>
                 <div>
-                  <label className="block text-sm mb-1">Endpoint URL</label>
-                  <input className="w-full border rounded px-3 py-2" value={opcEndpointUrl} onChange={e => setOpcEndpointUrl(e.target.value)} placeholder="opc.tcp://host:4840 or opc.tcp://host:4840/Path" />
+                    <label className="label">Endpoint URL</label>
+                    <input className="input input-md" value={opcEndpointUrl} onChange={e => setOpcEndpointUrl(e.target.value)} placeholder="opc.tcp://host:4840 or opc.tcp://host:4840/Path" />
                   <div className="text-xs text-gray-500 mt-1">Format: opc.tcp://host:port[/path], e.g., opc.tcp://localhost:4840 or opc.tcp://server:4840/OPCUA/Sim</div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm mb-1">Security Policy</label>
-                    <select className="w-full border rounded px-3 py-2" value={opcSecurityPolicy} onChange={e => setOpcSecurityPolicy(e.target.value)}>
+                    <label className="label">Security Policy</label>
+                    <select className="input input-md" value={opcSecurityPolicy} onChange={e => setOpcSecurityPolicy(e.target.value)}>
                       <option>None</option>
                       <option>Basic128Rsa15</option>
                       <option>Basic256</option>
@@ -850,8 +850,8 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm mb-1">Security Mode</label>
-                    <select className="w-full border rounded px-3 py-2" value={opcSecurityMode} onChange={e => setOpcSecurityMode(e.target.value)}>
+                    <label className="label">Security Mode</label>
+                    <select className="input input-md" value={opcSecurityMode} onChange={e => setOpcSecurityMode(e.target.value)}>
                       <option>None</option>
                       <option>Sign</option>
                       <option>SignAndEncrypt</option>
@@ -860,12 +860,12 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm mb-1">Username (optional)</label>
-                    <input className="w-full border rounded px-3 py-2" value={opcUser} onChange={e => setOpcUser(e.target.value)} />
+                    <label className="label">Username (optional)</label>
+                    <input className="input input-md" value={opcUser} onChange={e => setOpcUser(e.target.value)} />
                   </div>
                   <div>
-                    <label className="block text-sm mb-1">Password (optional)</label>
-                    <input type="password" className="w-full border rounded px-3 py-2" value={opcPwd} onChange={e => setOpcPwd(e.target.value)} />
+                    <label className="label">Password (optional)</label>
+                    <input type="password" className="input input-md" value={opcPwd} onChange={e => setOpcPwd(e.target.value)} />
                   </div>
                 </div>
               </div>
@@ -874,22 +874,22 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm mb-1">Host</label>
-                    <input className="w-full border rounded px-3 py-2" value={sshHost} onChange={e => setSshHost(e.target.value)} placeholder="server.example.com" />
+                    <label className="label">Host</label>
+                    <input className="input input-md" value={sshHost} onChange={e => setSshHost(e.target.value)} placeholder="server.example.com" />
                   </div>
                   <div>
-                    <label className="block text-sm mb-1">Port</label>
-                    <input type="number" className="w-full border rounded px-3 py-2" value={sshPort} onChange={e => setSshPort(e.target.value)} />
+                    <label className="label">Port</label>
+                    <input type="number" className="input input-md" value={sshPort} onChange={e => setSshPort(e.target.value)} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm mb-1">Username</label>
-                    <input className="w-full border rounded px-3 py-2" value={sshUser} onChange={e => setSshUser(e.target.value)} placeholder="root" />
+                    <label className="label">Username</label>
+                    <input className="input input-md" value={sshUser} onChange={e => setSshUser(e.target.value)} placeholder="root" />
                   </div>
                   <div>
-                    <label className="block text-sm mb-1">Auth Type</label>
-                    <select className="w-full border rounded px-3 py-2" value={sshAuthType} onChange={e => setSshAuthType(e.target.value)}>
+                    <label className="label">Auth Type</label>
+                    <select className="input input-md" value={sshAuthType} onChange={e => setSshAuthType(e.target.value)}>
                       <option value="password">Password</option>
                       <option value="privateKey">Private Key</option>
                     </select>
@@ -897,18 +897,18 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
                 </div>
                 {sshAuthType === 'password' ? (
                   <div>
-                    <label className="block text-sm mb-1">Password</label>
-                    <input type="password" className="w-full border rounded px-3 py-2" value={sshPassword} onChange={e => setSshPassword(e.target.value)} />
+                    <label className="label">Password</label>
+                    <input type="password" className="input input-md" value={sshPassword} onChange={e => setSshPassword(e.target.value)} />
                   </div>
                 ) : (
                   <div className="space-y-2">
                     <div>
-                      <label className="block text-sm mb-1">Private Key (PEM)</label>
-                      <textarea className="w-full border rounded px-3 py-2 font-mono text-xs" rows={5} value={sshPrivateKey} onChange={e => setSshPrivateKey(e.target.value)} placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" />
+                      <label className="label">Private Key (PEM)</label>
+                      <textarea className="input input-md font-mono text-xs" rows={5} value={sshPrivateKey} onChange={e => setSshPrivateKey(e.target.value)} placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" />
                     </div>
                     <div>
-                      <label className="block text-sm mb-1">Passphrase (optional)</label>
-                      <input type="password" className="w-full border rounded px-3 py-2" value={sshPassphrase} onChange={e => setSshPassphrase(e.target.value)} />
+                      <label className="label">Passphrase (optional)</label>
+                      <input type="password" className="input input-md" value={sshPassphrase} onChange={e => setSshPassphrase(e.target.value)} />
                     </div>
                   </div>
                 )}
@@ -917,8 +917,8 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
             {type === 'k8s' && (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm mb-1">Kubeconfig Source</label>
-                  <select className="w-full border rounded px-3 py-2" value={kubeSource} onChange={e => setKubeSource(e.target.value)}>
+                  <label className="label">Kubeconfig Source</label>
+                  <select className="input input-md" value={kubeSource} onChange={e => setKubeSource(e.target.value)}>
                     <option value="default">Default</option>
                     <option value="path">Path</option>
                     <option value="inline">Inline</option>
@@ -926,24 +926,24 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
                 </div>
                 {kubeSource === 'path' && (
                   <div>
-                    <label className="block text-sm mb-1">Kubeconfig Path</label>
-                    <input className="w-full border rounded px-3 py-2" value={kubePath} onChange={e => setKubePath(e.target.value)} placeholder="C:/Users/me/.kube/config" />
+                    <label className="label">Kubeconfig Path</label>
+                    <input className="input input-md" value={kubePath} onChange={e => setKubePath(e.target.value)} placeholder="C:/Users/me/.kube/config" />
                   </div>
                 )}
                 {kubeSource === 'inline' && (
                   <div>
-                    <label className="block text-sm mb-1">Kubeconfig (YAML)</label>
-                    <textarea className="w-full border rounded px-3 py-2 font-mono text-xs" rows={6} value={kubeInline} onChange={e => setKubeInline(e.target.value)} />
+                    <label className="label">Kubeconfig (YAML)</label>
+                    <textarea className="input input-md font-mono text-xs" rows={6} value={kubeInline} onChange={e => setKubeInline(e.target.value)} />
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm mb-1">Context (optional)</label>
-                    <input className="w-full border rounded px-3 py-2" value={kubeContext} onChange={e => setKubeContext(e.target.value)} placeholder="my-context" />
+                    <label className="label">Context (optional)</label>
+                    <input className="input input-md" value={kubeContext} onChange={e => setKubeContext(e.target.value)} placeholder="my-context" />
                   </div>
                   <div>
-                    <label className="block text-sm mb-1">Default Namespace</label>
-                    <input className="w-full border rounded px-3 py-2" value={kubeNamespace} onChange={e => setKubeNamespace(e.target.value)} placeholder="default" />
+                    <label className="label">Default Namespace</label>
+                    <input className="input input-md" value={kubeNamespace} onChange={e => setKubeNamespace(e.target.value)} placeholder="default" />
                   </div>
                 </div>
               </div>
@@ -953,22 +953,22 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm mb-1">Host</label>
-                    <input className="w-full border rounded px-3 py-2" value={ftpHost} onChange={e=>setFtpHost(e.target.value)} placeholder="ftp.example.com" />
+                    <label className="label">Host</label>
+                    <input className="input input-md" value={ftpHost} onChange={e=>setFtpHost(e.target.value)} placeholder="ftp.example.com" />
                   </div>
                   <div>
-                    <label className="block text-sm mb-1">Port</label>
-                    <input type="number" className="w-full border rounded px-3 py-2" value={ftpPort} onChange={e=>setFtpPort(e.target.value)} />
+                    <label className="label">Port</label>
+                    <input type="number" className="input input-md" value={ftpPort} onChange={e=>setFtpPort(e.target.value)} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm mb-1">Username</label>
-                    <input className="w-full border rounded px-3 py-2" value={ftpUser} onChange={e=>setFtpUser(e.target.value)} />
+                    <label className="label">Username</label>
+                    <input className="input input-md" value={ftpUser} onChange={e=>setFtpUser(e.target.value)} />
                   </div>
                   <div>
-                    <label className="block text-sm mb-1">Password</label>
-                    <input type="password" className="w-full border rounded px-3 py-2" value={ftpPwd} onChange={e=>setFtpPwd(e.target.value)} />
+                    <label className="label">Password</label>
+                    <input type="password" className="input input-md" value={ftpPwd} onChange={e=>setFtpPwd(e.target.value)} />
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -978,12 +978,12 @@ function ConnectionDialog({ initial=null, onClose, onSave }) {
               </div>
             )}
           </div>
-          <div className="mt-4 border-t pt-4 flex justify-between gap-2">
+          <div className="mt-4 border-t pt-4 button-bar horizontal">
             <div>
-              <button className="px-3 py-1.5 border rounded" onClick={saveCurrentAsTemplate} title="Save current form as reusable template">Save as template</button>
+              <button className="btn btn-secondary btn-sm" onClick={saveCurrentAsTemplate} title="Save current form as reusable template">Save as template</button>
             </div>
-            <button className="px-3 py-1.5 border rounded" onClick={onClose}>Cancel</button>
-            <button className="px-3 py-1.5 border rounded bg-blue-600 text-white" onClick={onSubmit}>{initial? 'Save' : 'Create'}</button>
+            <button className="btn btn-secondary btn-sm" onClick={onClose}>Cancel</button>
+            <button className="btn btn-primary btn-sm" onClick={onSubmit}>{initial? 'Save' : 'Create'}</button>
           </div>
         </div>
       </div>
